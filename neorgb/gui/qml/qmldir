@@ -1,0 +1,20 @@
+singleton Theme 1.0 Theme.qml
+Card 1.0 Card.qml
+NavItem 1.0 NavItem.qml
+Stat 1.0 Stat.qml
+NSlider 1.0 NSlider.qml
+NSwitch 1.0 NSwitch.qml
+NCombo 1.0 NCombo.qml
+NButton 1.0 NButton.qml
+Chip 1.0 Chip.qml
+Sparkline 1.0 Sparkline.qml
+CurveEditor 1.0 CurveEditor.qml
+ColorPicker 1.0 ColorPicker.qml
+LedPreview 1.0 LedPreview.qml
+EffectTile 1.0 EffectTile.qml
+SectionLabel 1.0 SectionLabel.qml
+OverviewPage 1.0 OverviewPage.qml
+CoolingPage 1.0 CoolingPage.qml
+LightingPage 1.0 LightingPage.qml
+DevicesPage 1.0 DevicesPage.qml
+SettingsPage 1.0 SettingsPage.qml

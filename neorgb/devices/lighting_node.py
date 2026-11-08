@@ -42,20 +42,20 @@ HW_EFFECTS = {
     "rainbow": 0x0A,
 }
 
-# Presets for the setup page: name -> LEDs per device
-PRESETS = {
-    "Corsair RGB LED strip (Lighting Node PRO kit)": 10,
-    "iCUE LS100 strip 250 mm": 15,
-    "iCUE LS100 strip 350 mm": 21,
-    "iCUE LS100 strip 450 mm": 27,
-    "HD RGB fan": 12,
-    "LL RGB fan": 16,
-    "QL RGB fan": 34,
-    "ML PRO RGB fan": 4,
-    "SP / AF RGB Elite fan (8 LED)": 8,
-    "SP RGB fan (1 LED)": 1,
-    "LT100 tower": 27,
-}
+# Presets for the setup page
+PRESETS = [
+    {"name": "RGB-LED-Streifen (Lighting Node PRO Kit)", "leds": 10, "kind": "linear"},
+    {"name": "LS100 Streifen 250 mm", "leds": 15, "kind": "linear"},
+    {"name": "LS100 Streifen 350 mm", "leds": 21, "kind": "linear"},
+    {"name": "LS100 Streifen 450 mm", "leds": 27, "kind": "linear"},
+    {"name": "LT100 Turm", "leds": 27, "kind": "linear"},
+    {"name": "SP/AF RGB Elite Lüfter (8 LEDs)", "leds": 8, "kind": "ring"},
+    {"name": "HD RGB Lüfter (12 LEDs)", "leds": 12, "kind": "ring"},
+    {"name": "LL RGB Lüfter (16 LEDs)", "leds": 16, "kind": "ring"},
+    {"name": "QL RGB Lüfter (34 LEDs)", "leds": 34, "kind": "ring"},
+    {"name": "ML PRO RGB Lüfter (4 LEDs)", "leds": 4, "kind": "ring"},
+    {"name": "SP RGB Lüfter (1 LED)", "leds": 1, "kind": "ring"},
+]
 
 
 class LightingNode:

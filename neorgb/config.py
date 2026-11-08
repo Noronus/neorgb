@@ -29,7 +29,7 @@ DEFAULTS = {
         "hw_fallback": True,
     },
     "devices": {},
-    "openrgb": {"enabled": False, "host": "127.0.0.1", "port": 6742, "spawn": True},
+    "openrgb": {"enabled": True, "host": "127.0.0.1", "port": 6744, "spawn": True},
 }
 
 

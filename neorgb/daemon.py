@@ -538,6 +538,8 @@ class Daemon:
                         extra[w.key] = {"channels": w.dev.channels}
             for d in devs:
                 d.update(extra.get(d["key"], {}))
+            rank = {"commander_core": 0, "lighting_node": 1}
+            devs.sort(key=lambda d: (rank.get(d["kind"], 5), d["name"]))
             for src in self.extra_sources:
                 devs += src.describe()
             fans = []
@@ -550,7 +552,7 @@ class Daemon:
                       "kind": z.kind, "cfg": snap["lighting"]["zones"].get(z.id, {"follow": True})}
                      for z in self.all_zones()]
             return {"devices": devs, "fans": fans, "zones": zones, "sensors": self.sensors.listing(),
-                    "config": snap, "effects": EFFECTS, "presets": lnmod.PRESETS,
+                    "config": snap, "effects": EFFECTS, "effect_order": list(EFFECTS), "presets": lnmod.PRESETS,
                     "hw_effects": list(lnmod.HW_EFFECTS) + ["off", "auto"], "uptime": time.time() - self.started}
         if method == "frame":
             want = p.get("zones")
@@ -635,6 +637,21 @@ class Daemon:
             self.changed()
             if p.get("restart", True):
                 threading.Thread(target=self.restart_worker, args=(key,), daemon=True).start()
+            return True
+        if method == "set_lighting":
+            with c.lock:
+                if "fps" in p:
+                    c.data["lighting"]["fps"] = max(5, min(60, int(p["fps"])))
+            self.changed()
+            return True
+        if method == "set_orgb_zone":
+            with c.lock:
+                d = c.data["devices"].setdefault(p["key"], {})
+                d.setdefault("zone_sizes", {})[str(int(p["zone"]))] = int(p["size"])
+            self.changed()
+            for src in self.extra_sources:
+                src._reload = True
+                src._wake.set()
             return True
         if method == "set_openrgb":
             with c.lock:
