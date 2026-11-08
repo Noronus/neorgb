@@ -1,0 +1,16 @@
+#!/usr/bin/make -f
+export PYBUILD_NAME=neorgb
+
+%:
+	dh $@ --with python3 --buildsystem=pybuild
+
+override_dh_auto_test:
+	python3 -m unittest tests.test_offline
+
+execute_after_dh_auto_install:
+	install -Dm644 neorgb/gui/icons/neorgb.svg debian/neorgb/usr/share/icons/hicolor/scalable/apps/neorgb.svg
+	sed 's|@BIN@/||' packaging/neorgb.desktop > debian/neorgb.desktop.out
+	install -Dm644 debian/neorgb.desktop.out debian/neorgb/usr/share/applications/neorgb.desktop
+	sed 's|@BIN@|/usr/bin|' packaging/neorgbd.service > debian/neorgbd.service.out
+	install -Dm644 debian/neorgbd.service.out debian/neorgb/usr/lib/systemd/user/neorgbd.service
+	install -Dm644 packaging/60-neorgb.rules debian/neorgb/usr/lib/udev/rules.d/60-neorgb.rules

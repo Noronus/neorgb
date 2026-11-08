@@ -1,6 +1,6 @@
 [Unit]
 Description=NeoRGB lighting, fan and pump control
-Documentation=file://%h/Documents/Claude/neorgb/README.md
+Documentation=https://github.com/Noronus/neorgb
 After=graphical-session.target
 
 [Service]

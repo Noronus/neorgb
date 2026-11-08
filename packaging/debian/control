@@ -1,0 +1,36 @@
+Source: neorgb
+Section: utils
+Priority: optional
+Maintainer: Noronus <74186111+Noronus@users.noreply.github.com>
+Build-Depends: debhelper-compat (= 13),
+               dh-python,
+               pybuild-plugin-pyproject,
+               python3-all,
+               python3-setuptools
+Standards-Version: 4.7.0
+Homepage: https://github.com/Noronus/neorgb
+Rules-Requires-Root: no
+
+Package: neorgb
+Architecture: all
+Depends: ${misc:Depends},
+         ${python3:Depends},
+         python3-pyside6.qtcore,
+         python3-pyside6.qtgui,
+         python3-pyside6.qtnetwork,
+         python3-pyside6.qtqml,
+         python3-pyside6.qtquick,
+         python3-pyside6.qtquickcontrols2,
+         qml6-module-qtquick,
+         qml6-module-qtquick-controls,
+         qml6-module-qtquick-layouts,
+         qml6-module-qtquick-templates,
+         qml6-module-qtquick-window,
+         qml6-module-qtqml-workerscript,
+         qt6-svg-plugins
+Recommends: openrgb
+Description: RGB lighting and Corsair AIO / fan control
+ NeoRGB controls Corsair iCUE Commander CORE (pump, fans, liquid temperature,
+ RGB) and Lighting Node PRO / CORE directly, with fan curves that are also
+ stored in the AIO as a fallback. All other RGB devices are driven through a
+ private OpenRGB server.

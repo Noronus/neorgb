@@ -3,6 +3,8 @@
 RGB-Beleuchtung und Corsair-AIO-/Lüftersteuerung für Linux, in einem Dienst
 und einer Oberfläche.
 
+![Übersicht](docs/screenshots/uebersicht.png)
+
 - **Corsair direkt:** iCUE Commander CORE / CORE XT / ST (Pumpe, Lüfter,
   Wassertemperatur, RGB), Lighting Node PRO / CORE, LS100, LT100
 - **Lüfter und Pumpe:** Kurven nach Wasser-, CPU-, GPU- oder jedem anderen
@@ -10,8 +12,9 @@ und einer Oberfläche.
   Fester Wert pro Kanal möglich.
 - **Ausfallsicher:** Die Kurven werden zusätzlich in der AIO gespeichert.
   Läuft NeoRGB nicht (Boot, Absturz, Dienst gestoppt), regelt die AIO selbst
-  nach Wassertemperatur. Die Pumpe fällt nie unter 50 %. Ab 50 °C Wasser oder
-  bei fehlendem Sensor gehen alle Kanäle auf 100 %.
+  nach Wassertemperatur. Die Pumpe fällt nie unter 50 %. Ab 50 °C Wasser gehen
+  alle Kanäle auf 100 %. Fällt der Sensor einer Kurve aus, laufen nur deren
+  Kanäle auf einer einstellbaren Leistung (Standard 100 %).
 - **Alles andere** (ASUS Aura, RAM, Tastatur, Maus) über einen privaten
   OpenRGB-Server, den NeoRGB selbst startet. In dessen Konfiguration sind die
   Corsair-Hubs abgeschaltet, damit nie zwei Programme gleichzeitig auf dasselbe
@@ -19,16 +22,47 @@ und einer Oberfläche.
 
 ## Installieren
 
+Fertige Pakete gibt es unter
+[Releases](https://github.com/Noronus/neorgb/releases/latest).
+
+| System | Befehl |
+|---|---|
+| Arch, CachyOS | `sudo pacman -U neorgb-0.1.0-1-any.pkg.tar.zst` |
+| Debian 13 | `sudo apt install ./neorgb_0.1.0-1_all.deb` |
+| Fedora 44 | `sudo dnf install ./neorgb-0.1.0-1.fc44.noarch.rpm` |
+
+Danach einmal:
+
+```sh
+sudo udevadm control --reload && sudo udevadm trigger   # Zugriff auf die Corsair-Geräte
+systemctl --user enable --now neorgbd                  # Dienst starten, auch nach jedem Login
+```
+
+„NeoRGB“ liegt dann im Startmenü. Kommandozeile: `neorgbctl status`.
+
+Für ASUS Aura, RAM, Tastatur, Maus und andere Nicht-Corsair-Geräte braucht es
+zusätzlich `openrgb` samt seinen udev-Regeln. Die Pakete empfehlen es nur.
+
+**Ohne Paket**, direkt aus dem Git-Checkout, ohne root:
+
 ```sh
 ./install.sh
 systemctl --user enable --now neorgbd
 ```
 
-Danach liegt „NeoRGB“ im Startmenü. Kommandozeile: `neorgbctl status`.
+Voraussetzungen dafür: Python ≥ 3.11, PySide6 und die OpenRGB-udev-Regeln. Die
+geben Zugriff auf `/dev/hidraw*` und I²C.
 
-Voraussetzungen: Python ≥ 3.11, PySide6 (`pyside6`), `openrgb` für die
-Nicht-Corsair-Geräte und die OpenRGB-udev-Regeln (geben Zugriff auf
-`/dev/hidraw*` und I²C).
+**Pakete selbst bauen**: `packaging/build-packages.sh` baut alle drei in
+Containern (podman oder docker), installiert jedes Paket probeweise und lädt
+die Oberfläche einmal. Das Ergebnis liegt in `dist/`.
+
+## Bilder
+
+| | |
+|---|---|
+| ![Kühlung](docs/screenshots/kuehlung.png) **Kühlung**: Kurven pro Lüfter und Pumpe, Punkte ziehen | ![Beleuchtung](docs/screenshots/beleuchtung.png) **Beleuchtung**: ein Effekt für alles oder pro Zone |
+| ![Geräte](docs/screenshots/geraete.png) **Geräte**: was an den Lighting Nodes hängt, LEDs zählen | ![Einstellungen](docs/screenshots/einstellungen.png) **Einstellungen** |
 
 ## Lighting Nodes einrichten
 

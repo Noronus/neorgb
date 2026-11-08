@@ -1,0 +1,33 @@
+# Maintainer: Noronus <74186111+Noronus@users.noreply.github.com>
+pkgname=neorgb
+pkgver=0.1.0
+pkgrel=1
+pkgdesc="RGB lighting and Corsair AIO / fan control for Linux"
+arch=('any')
+url="https://github.com/Noronus/neorgb"
+license=('GPL-3.0-or-later')
+depends=('python' 'pyside6' 'qt6-svg')
+optdepends=('openrgb: ASUS Aura, RAM, keyboards, mice and other non-Corsair devices')
+makedepends=('git' 'python-build' 'python-installer' 'python-setuptools' 'python-wheel')
+source=("git+https://github.com/Noronus/neorgb.git#tag=v${pkgver}")
+sha256sums=('SKIP')
+
+build() {
+  cd "$pkgname"
+  python -m build --wheel --no-isolation
+}
+
+check() {
+  cd "$pkgname"
+  python -m unittest tests.test_offline
+}
+
+package() {
+  cd "$pkgname"
+  python -m installer --destdir="$pkgdir" dist/*.whl
+  install -Dm644 neorgb/gui/icons/neorgb.svg "$pkgdir/usr/share/icons/hicolor/scalable/apps/neorgb.svg"
+  sed 's|@BIN@/||' packaging/neorgb.desktop | install -Dm644 /dev/stdin "$pkgdir/usr/share/applications/neorgb.desktop"
+  sed 's|@BIN@|/usr/bin|' packaging/neorgbd.service | install -Dm644 /dev/stdin "$pkgdir/usr/lib/systemd/user/neorgbd.service"
+  install -Dm644 packaging/60-neorgb.rules "$pkgdir/usr/lib/udev/rules.d/60-neorgb.rules"
+  install -Dm644 README.md "$pkgdir/usr/share/doc/$pkgname/README.md"
+}

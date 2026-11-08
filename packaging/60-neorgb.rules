@@ -1,0 +1,3 @@
+# NeoRGB: give the logged-in user access to Corsair iCUE devices
+# (Commander CORE / XT / ST, Lighting Node PRO / CORE) over hidraw.
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1b1c", TAG+="uaccess"
