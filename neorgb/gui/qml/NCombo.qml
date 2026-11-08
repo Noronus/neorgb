@@ -20,10 +20,10 @@ ComboBox {
     }
     background: Rectangle { radius: 9; color: cb.hovered ? Theme.cardHi : Theme.panel; border.color: cb.activeFocus ? Theme.accent : Theme.line }
     delegate: ItemDelegate {
-        width: cb.width
+        width: cb.width - 8; implicitHeight: 34
         highlighted: cb.highlightedIndex === index
         contentItem: Text {
-            text: cb.textRole ? (Array.isArray(cb.model) ? modelData[cb.textRole] : model[cb.textRole]) : modelData
+            text: cb.textAt(index)
             color: Theme.text; font: cb.font; elide: Text.ElideRight; verticalAlignment: Text.AlignVCenter
         }
         background: Rectangle { color: highlighted ? Theme.cardHi : Theme.card }
