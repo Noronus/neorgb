@@ -24,7 +24,7 @@ Flickable {
     readonly property var selectedFan: fanById(selFan)
 
     Component.onCompleted: pickDefault()
-    onStChanged: if (!selFan) pickDefault()
+    Connections { target: page.st; function onFansChanged() { if (!page.selFan) page.pickDefault() } }
     function pickDefault() {
         var f = st.fans || []
         if (f.length) { selFan = f[f.length > 1 ? 1 : 0].id; if (selectedFan && selectedFan.cfg.curve) selCurve = selectedFan.cfg.curve }
@@ -55,6 +55,7 @@ Flickable {
                 model: st.fans || []
                 Rectangle {
                     id: fc
+                    property var lv: win.live(modelData.id)
                     property bool sel: page.selFan === modelData.id
                     width: Math.max(220, (col.width - Theme.gap * 3) / 4)
                     height: 168
@@ -68,21 +69,21 @@ Flickable {
                         Row {
                             width: parent.width
                             Text { text: modelData.cfg.label || modelData.name; color: Theme.text; font.pixelSize: 15; font.weight: Font.DemiBold; width: parent.width - 70; elide: Text.ElideRight }
-                            Text { text: modelData.failsafe ? "FAILSAFE" : ""; color: Theme.bad; font.pixelSize: 11; font.weight: Font.Bold; width: 70; horizontalAlignment: Text.AlignRight }
+                            Text { text: fc.lv.failsafe ? "FAILSAFE" : ""; color: Theme.bad; font.pixelSize: 11; font.weight: Font.Bold; width: 70; horizontalAlignment: Text.AlignRight }
                         }
                         Row {
                             spacing: 6
-                            Text { text: modelData.rpm; color: Theme.text; font.pixelSize: 26; font.weight: Font.DemiBold }
+                            Text { text: fc.lv.rpm === undefined ? "–" : fc.lv.rpm; color: Theme.text; font.pixelSize: 26; font.weight: Font.DemiBold }
                             Text { text: "rpm"; color: Theme.muted; font.pixelSize: 13; anchors.baseline: parent.children[0].baseline }
                             Item { width: 10; height: 1 }
-                            Text { text: modelData.duty === null ? "" : Math.round(modelData.duty) + " %"; color: modelData.pump ? Theme.good : Theme.accent; font.pixelSize: 15; font.weight: Font.DemiBold; anchors.baseline: parent.children[0].baseline }
+                            Text { text: fc.lv.duty == null ? "" : Math.round(fc.lv.duty) + " %"; color: modelData.pump ? Theme.good : Theme.accent; font.pixelSize: 15; font.weight: Font.DemiBold; anchors.baseline: parent.children[0].baseline }
                         }
                         Row {
                             spacing: 6
                             Chip { text: "Kurve"; selected: modelData.cfg.mode === "curve"; height: 26
                                 onClicked: { backend.call("set_fan", { fan: modelData.id, mode: "curve", curve: modelData.cfg.curve || (modelData.pump ? "pump_balanced" : "balanced") }); page.selFan = modelData.id } }
                             Chip { text: "Fest"; selected: modelData.cfg.mode === "fixed"; height: 26
-                                onClicked: { backend.call("set_fan", { fan: modelData.id, mode: "fixed", fixed: Math.round(modelData.duty || 50) }); page.selFan = modelData.id } }
+                                onClicked: { backend.call("set_fan", { fan: modelData.id, mode: "fixed", fixed: Math.round(fc.lv.duty || 50) }); page.selFan = modelData.id } }
                         }
                         Loader {
                             width: parent.width
@@ -189,7 +190,7 @@ Flickable {
                     points: page.curCurve.points
                     tMin: page.range[0]; tMax: page.range[1]
                     temp: win.sensor(page.curCurve.sensor)
-                    duty: page.selectedFan && page.selectedFan.cfg.mode === "curve" && page.selectedFan.cfg.curve === page.selCurve ? page.selectedFan.duty : null
+                    duty: page.selectedFan && page.selectedFan.cfg.mode === "curve" && page.selectedFan.cfg.curve === page.selCurve ? win.live(page.selectedFan.id).duty : null
                     tint: page.selCurve.indexOf("pump") === 0 ? Theme.good : Theme.accent
                     minDuty: page.selCurve.indexOf("pump") === 0 ? 50 : 0
                     onEdited: function (p) { page.saveCurve({ points: p }) }

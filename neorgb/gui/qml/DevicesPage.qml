@@ -95,7 +95,7 @@ Flickable {
                             width: parent.width
                             visible: page.zoneFor(dev.key, chBox.ch) !== null
                             property var zn: page.zoneFor(dev.key, chBox.ch)
-                            hex: zn ? ((backend.frame || {})[zn.id] || "") : ""
+                            hex: zn ? (win.frame[zn.id] || "") : ""
                             kind: zn ? zn.kind : "linear"; segments: zn ? zn.segments : []; leds: zn ? zn.leds : 0
                         }
                         Flow {

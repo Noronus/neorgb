@@ -9,13 +9,16 @@ Canvas {
     property var segments: []
     property int leds: 0
     implicitHeight: kind === "ring" ? 64 : 22
-    onHexChanged: requestPaint()
-    onWidthChanged: requestPaint()
+    // hidden pages stay alive in the StackLayout: only paint what is on screen
+    onHexChanged: if (visible) requestPaint()
+    onWidthChanged: if (visible) requestPaint()
+    onVisibleChanged: if (visible) requestPaint()
     renderStrategy: Canvas.Cooperative
-    function col(i) {
+    function col(i, a) {
         var o = i * 6
         if (o + 6 > hex.length) return "rgb(20,24,32)"
         var r = parseInt(hex.substr(o, 2), 16), g = parseInt(hex.substr(o + 2, 2), 16), b = parseInt(hex.substr(o + 4, 2), 16)
+        if (a !== undefined) return "rgba(" + r + "," + g + "," + b + "," + a + ")"
         // lift very dark LEDs a bit so "off" still shows the shape
         return "rgb(" + Math.max(r, 22) + "," + Math.max(g, 26) + "," + Math.max(b, 34) + ")"
     }
@@ -32,18 +35,18 @@ Canvas {
                 c.strokeStyle = "#1f2431"; c.lineWidth = 6; c.beginPath(); c.arc(cx, cy, r, 0, Math.PI * 2); c.stroke()
                 for (var i = 0; i < segs[s]; i++) {
                     var a = -Math.PI / 2 + i / segs[s] * Math.PI * 2
-                    var col_ = col(idx + i)
-                    c.fillStyle = col_; c.shadowColor = col_; c.shadowBlur = 8
-                    c.beginPath(); c.arc(cx + Math.cos(a) * r, cy + Math.sin(a) * r, segs[s] > 20 ? 3 : 4.2, 0, Math.PI * 2); c.fill()
+                    var px = cx + Math.cos(a) * r, py = cy + Math.sin(a) * r, dot = segs[s] > 20 ? 3 : 4.2
+                    c.fillStyle = col(idx + i, 0.22)
+                    c.beginPath(); c.arc(px, py, dot * 2, 0, Math.PI * 2); c.fill()
+                    c.fillStyle = col(idx + i)
+                    c.beginPath(); c.arc(px, py, dot, 0, Math.PI * 2); c.fill()
                 }
-                c.shadowBlur = 0
                 idx += segs[s]
             }
         } else {
             var w = width / n
             for (var j = 0; j < n; j++) {
-                var cc = col(j)
-                c.fillStyle = cc; c.shadowColor = cc; c.shadowBlur = 6
+                c.fillStyle = col(j)
                 var bw = Math.max(1, w - (w > 4 ? 2 : 0))
                 c.beginPath()
                 if (c.roundedRect) c.roundedRect(j * w, 4, bw, height - 8, 2, 2); else c.rect(j * w, 4, bw, height - 8)

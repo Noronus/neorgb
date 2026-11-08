@@ -90,7 +90,7 @@ Flickable {
                                     Text { text: modelData.name; color: Theme.text; font.pixelSize: 13; width: parent.width - 50; elide: Text.ElideRight }
                                     Text { text: modelData.cfg.follow === false ? "eigen" : ""; color: Theme.accent2; font.pixelSize: 11; width: 50; horizontalAlignment: Text.AlignRight }
                                 }
-                                LedPreview { width: parent.width; hex: (backend.frame || {})[modelData.id] || ""; kind: modelData.kind; segments: modelData.segments; leds: modelData.leds }
+                                LedPreview { width: parent.width; hex: win.frame[modelData.id] || ""; kind: modelData.kind; segments: modelData.segments; leds: modelData.leds }
                             }
                         }
                     }

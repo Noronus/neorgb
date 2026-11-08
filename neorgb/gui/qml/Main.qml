@@ -11,10 +11,13 @@ ApplicationWindow {
     title: "NeoRGB"
     color: Theme.bg
     property int page: 0
-    readonly property var st: backend.state || ({})
+    // per-key store: each part only notifies when it really changed
+    readonly property var st: backend.store
+    readonly property var frame: backend.frame || ({})
     onPageChanged: backend.setPreview(page === 0 || page === 2 || page === 3)
     Component.onCompleted: backend.setPreview(true)
 
+    function live(id) { return (st.fan_live || {})[id] || ({}) }
     function sensor(id) {
         var l = st.sensors || []
         for (var i = 0; i < l.length; i++) if (l[i].id === id) return l[i].value

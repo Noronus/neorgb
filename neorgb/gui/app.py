@@ -21,6 +21,71 @@ SOCKET = str(RUNTIME / "neorgb.sock")
 HERE = Path(__file__).resolve().parent
 
 
+LIVE_FAN_FIELDS = ("rpm", "duty", "target", "temp", "failsafe")
+
+
+def _key_prop(key: str, sig: Signal) -> Property:
+    return Property("QVariant", lambda self: self._d.get(key), notify=sig)
+
+
+class Store(QObject):
+    """The daemon state, split per top-level key.
+
+    QML binds to ``store.devices``, ``store.fans`` and so on.  Each key only
+    notifies when its content really changed, so the once-a-second poll no
+    longer rebuilds every card, closes open dropdowns or resets sliders.
+    Fan readings that change every second live apart in ``fan_live``.
+    """
+
+    devicesChanged = Signal()
+    fansChanged = Signal()
+    fan_liveChanged = Signal()
+    zonesChanged = Signal()
+    sensorsChanged = Signal()
+    configChanged = Signal()
+    effectsChanged = Signal()
+    effect_orderChanged = Signal()
+    presetsChanged = Signal()
+    hw_effectsChanged = Signal()
+    uptimeChanged = Signal()
+
+    devices = _key_prop("devices", devicesChanged)
+    fans = _key_prop("fans", fansChanged)
+    fan_live = _key_prop("fan_live", fan_liveChanged)
+    zones = _key_prop("zones", zonesChanged)
+    sensors = _key_prop("sensors", sensorsChanged)
+    config = _key_prop("config", configChanged)
+    effects = _key_prop("effects", effectsChanged)
+    effect_order = _key_prop("effect_order", effect_orderChanged)
+    presets = _key_prop("presets", presetsChanged)
+    hw_effects = _key_prop("hw_effects", hw_effectsChanged)
+    uptime = _key_prop("uptime", uptimeChanged)
+
+    KEYS = ("devices", "fans", "fan_live", "zones", "sensors", "config", "effects",
+            "effect_order", "presets", "hw_effects", "uptime")
+
+    def __init__(self, parent: QObject | None = None) -> None:
+        super().__init__(parent)   # a parent keeps QML's GC from claiming it
+        self._d: dict = {}
+        self._json: dict[str, str] = {}
+
+    def update(self, state: dict) -> bool:
+        state = dict(state)
+        fans = state.get("fans") or []
+        state["fan_live"] = {f["id"]: {k: f.get(k) for k in LIVE_FAN_FIELDS} for f in fans}
+        state["fans"] = [{k: v for k, v in f.items() if k not in LIVE_FAN_FIELDS} for f in fans]
+        changed = False
+        for key in self.KEYS:
+            val = state.get(key)
+            j = json.dumps(val, sort_keys=True)
+            if j != self._json.get(key):
+                self._json[key] = j
+                self._d[key] = val
+                getattr(self, key + "Changed").emit()
+                changed = True
+        return changed
+
+
 class Backend(QObject):
     stateChanged = Signal()
     frameChanged = Signal()
@@ -38,6 +103,7 @@ class Backend(QObject):
         self._ids = itertools.count(1)
         self._pending: dict[int, str] = {}
         self._preview = False
+        self._store = Store(self)
         self.sock = QLocalSocket(self)
         self.sock.readyRead.connect(self._read)
         self.sock.connected.connect(self._on_connected)
@@ -99,6 +165,7 @@ class Backend(QObject):
             r = res.get("result")
             if tag == "state":
                 self._state = r
+                self._store.update(r)
                 self.stateChanged.emit()
             elif tag == "frame":
                 self._frame = r
@@ -125,6 +192,10 @@ class Backend(QObject):
     @Property("QVariant", notify=stateChanged)
     def state(self):
         return self._state
+
+    @Property(QObject, constant=True)
+    def store(self):
+        return self._store
 
     @Property("QVariant", notify=frameChanged)
     def frame(self):
@@ -189,7 +260,9 @@ def main() -> int:
             win.grabWindow().save(shot)
             app.quit()
         QTimer.singleShot(int(os.environ.get("NEORGB_DELAY", "2500")), grab)
-    return app.exec()
+    rc = app.exec()
+    del engine   # tear QML down while backend still exists, avoids null errors on exit
+    return rc
 
 
 if __name__ == "__main__":

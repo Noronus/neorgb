@@ -11,7 +11,7 @@ Flickable {
     clip: true
     ScrollBar.vertical: ScrollBar {}
 
-    function pump() { var f = st.fans || []; for (var i = 0; i < f.length; i++) if (f[i].pump) return f[i]; return null }
+    function pump() { var f = st.fans || []; for (var i = 0; i < f.length; i++) if (f[i].pump) return win.live(f[i].id); return null }
 
     ColumnLayout {
         id: col
@@ -34,9 +34,9 @@ Flickable {
                 tint: Theme.accent2; fill: (win.sensor("cpu") - 25) / 70; sub: "Tctl" }
             Stat { Layout.fillWidth: true; label: "GPU"; value: Theme.fmt(win.sensor("gpu")); unit: "°C"
                 tint: Theme.pink; fill: (win.sensor("gpu") - 25) / 85; sub: "Hotspot" }
-            Stat { Layout.fillWidth: true; label: "Pumpe"; value: page.pump() ? page.pump().rpm : "–"; unit: "rpm"
-                tint: Theme.good; fill: page.pump() && page.pump().duty !== null ? page.pump().duty / 100 : -1
-                sub: page.pump() && page.pump().duty !== null ? Math.round(page.pump().duty) + " % Leistung" : "" }
+            Stat { Layout.fillWidth: true; label: "Pumpe"; value: page.pump() && page.pump().rpm != null ? page.pump().rpm : "–"; unit: "rpm"
+                tint: Theme.good; fill: page.pump() && page.pump().duty != null ? page.pump().duty / 100 : -1
+                sub: page.pump() && page.pump().duty != null ? Math.round(page.pump().duty) + " % Leistung" : "" }
         }
 
         RowLayout {
@@ -73,17 +73,19 @@ Flickable {
                     Repeater {
                         model: st.fans || []
                         Column {
+                            id: fr
+                            property var lv: win.live(modelData.id)
                             width: parent.width; spacing: 6
                             Row {
                                 width: parent.width
                                 Text { text: modelData.cfg.label || modelData.name; color: Theme.text; font.pixelSize: 13; width: parent.width - 140 }
-                                Text { text: modelData.rpm + " rpm"; color: Theme.muted; font.pixelSize: 13; width: 80; horizontalAlignment: Text.AlignRight }
-                                Text { text: modelData.duty === null ? "–" : Math.round(modelData.duty) + " %"; color: Theme.text; font.pixelSize: 13; font.weight: Font.DemiBold; width: 60; horizontalAlignment: Text.AlignRight }
+                                Text { text: fr.lv.rpm + " rpm"; color: Theme.muted; font.pixelSize: 13; width: 80; horizontalAlignment: Text.AlignRight }
+                                Text { text: fr.lv.duty == null ? "–" : Math.round(fr.lv.duty) + " %"; color: Theme.text; font.pixelSize: 13; font.weight: Font.DemiBold; width: 60; horizontalAlignment: Text.AlignRight }
                             }
                             Item { width: parent.width; height: 6
                                 Rectangle { anchors.fill: parent; radius: 3; color: Theme.line }
-                                Rectangle { height: 6; radius: 3; width: parent.width * (modelData.duty || 0) / 100
-                                    color: modelData.failsafe ? Theme.bad : (modelData.pump ? Theme.good : Theme.accent)
+                                Rectangle { height: 6; radius: 3; width: parent.width * (fr.lv.duty || 0) / 100
+                                    color: fr.lv.failsafe ? Theme.bad : (modelData.pump ? Theme.good : Theme.accent)
                                     Behavior on width { NumberAnimation { duration: 500; easing.type: Easing.OutCubic } } }
                             }
                         }
@@ -121,7 +123,7 @@ Flickable {
                             spacing: 6
                             width: modelData.kind === "ring" ? 120 : 260
                             Text { text: modelData.name; color: Theme.muted; font.pixelSize: 12 }
-                            LedPreview { width: parent.width; hex: (backend.frame || {})[modelData.id] || ""; kind: modelData.kind; segments: modelData.segments; leds: modelData.leds }
+                            LedPreview { width: parent.width; hex: win.frame[modelData.id] || ""; kind: modelData.kind; segments: modelData.segments; leds: modelData.leds }
                         }
                     }
                 }
