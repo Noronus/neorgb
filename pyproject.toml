@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "neorgb"
+version = "0.1.0"
+description = "RGB lighting and Corsair AIO / fan control for Linux"
+license = "GPL-3.0-or-later"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.optional-dependencies]
+gui = ["PySide6>=6.6"]
+
+[project.scripts]
+neorgbd = "neorgb.daemon:main"
+neorgbctl = "neorgb.cli:main"
+
+[project.gui-scripts]
+neorgb = "neorgb.gui.app:main"
+
+[tool.setuptools.packages.find]
+include = ["neorgb*"]
+
+[tool.setuptools.package-data]
+"neorgb.gui" = ["qml/*.qml", "qml/*/*.qml", "icons/*"]
