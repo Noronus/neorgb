@@ -1,8 +1,14 @@
-"""Temperature sources: every hwmon temp input plus a few friendly aliases."""
+"""Temperature sources: every hwmon temp input plus a few friendly aliases.
+
+Each hwmon chip is read by its own thread.  A chip whose sysfs reads hang
+(e.g. amdgpu with a stuck SMU takes seconds per read) then only goes stale
+itself and cannot make the other sensors look old.
+"""
 
 from __future__ import annotations
 
 import os
+import threading
 import time
 from collections import deque
 from dataclasses import dataclass
@@ -18,6 +24,7 @@ class Sensor:
     path: str | None = None      # sysfs temp*_input, None for device sensors
     value: float | None = None
     ts: float = 0.0
+    chip: str = ""               # hwmon dir; one reader thread per chip
 
 
 def _read(p: Path) -> str:
@@ -35,9 +42,13 @@ def _pci_of(hw: Path) -> str:
 class Sensors:
     """Reads hwmon temps.  Device sensors (AIO liquid) are pushed in by drivers."""
 
+    INTERVAL = 1.0
+
     def __init__(self) -> None:
         self.sensors: dict[str, Sensor] = {}
         self.history: dict[str, deque] = {}
+        self._stop = threading.Event()
+        self._threads: list[threading.Thread] = []
         self._scan()
 
     def _scan(self) -> None:
@@ -64,14 +75,15 @@ class Sensors:
                         nice = f"CPU {label}"
                     elif name == "nvme":
                         nice = f"NVMe {label}"
-                    found[sid] = Sensor(sid, nice, str(inp))
+                    chip = str(hw)
+                    found[sid] = Sensor(sid, nice, str(inp), chip=chip)
                     # aliases
                     if name in ("k10temp", "coretemp") and label in ("Tctl", "Package id 0"):
-                        found["cpu"] = Sensor("cpu", "CPU", str(inp))
+                        found["cpu"] = Sensor("cpu", "CPU", str(inp), chip=chip)
                     if hw == dgpu and label == "junction":
-                        found["gpu"] = Sensor("gpu", "GPU (Hotspot)", str(inp))
+                        found["gpu"] = Sensor("gpu", "GPU (Hotspot)", str(inp), chip=chip)
                     if hw == dgpu and label == "edge" and "gpu" not in found:
-                        found["gpu"] = Sensor("gpu", "GPU", str(inp))
+                        found["gpu"] = Sensor("gpu", "GPU", str(inp), chip=chip)
         for sid, s in self.sensors.items():
             if s.path is None:
                 found[sid] = s
@@ -91,18 +103,41 @@ class Sensors:
         h = self.history.setdefault(sid, deque(maxlen=600))
         h.append((time.time(), value))
 
+    def _read_one(self, s: Sensor) -> None:
+        raw = _read(Path(s.path))
+        try:
+            s.value = int(raw) / 1000.0
+            s.ts = time.monotonic()
+        except ValueError:
+            s.value = None
+        self._remember(s.id, s.value)
+
     def update(self) -> None:
-        now = time.monotonic()
+        """Read everything once, in the caller's thread (tests, before start)."""
+        for s in list(self.sensors.values()):
+            if s.path is not None:
+                self._read_one(s)
+
+    def start(self) -> None:
+        """One reader thread per hwmon chip."""
+        chips: dict[str, list[Sensor]] = {}
         for s in self.sensors.values():
-            if s.path is None:
-                continue
-            raw = _read(Path(s.path))
-            try:
-                s.value = int(raw) / 1000.0
-                s.ts = now
-            except ValueError:
-                s.value = None
-            self._remember(s.id, s.value)
+            if s.path is not None:
+                chips.setdefault(s.chip, []).append(s)
+        for chip, group in chips.items():
+            t = threading.Thread(target=self._chip_loop, args=(group,), daemon=True,
+                                 name=f"hwmon:{os.path.basename(chip)}")
+            t.start()
+            self._threads.append(t)
+
+    def _chip_loop(self, group: list[Sensor]) -> None:
+        while not self._stop.is_set():
+            for s in group:
+                self._read_one(s)
+            self._stop.wait(self.INTERVAL)
+
+    def stop(self) -> None:
+        self._stop.set()
 
     def get(self, sid: str, max_age: float = 10.0) -> float | None:
         s = self.sensors.get(sid)
@@ -123,7 +158,12 @@ class Sensors:
             return self.get(sid)
         return sum(vals) / len(vals)
 
-    def listing(self) -> list[dict]:
+    def listing(self, max_age: float = 10.0) -> list[dict]:
+        """Stale sensors show as None, so a hung chip reads "–" in the app."""
         order = {"liquid": 0, "cpu": 1, "gpu": 2}
         items = sorted(self.sensors.values(), key=lambda s: (order.get(s.id, 9), s.label))
-        return [{"id": s.id, "label": s.label, "value": s.value} for s in items]
+        return [{"id": s.id, "label": s.label, "value": self.get(s.id, max_age)} for s in items]
+
+    def label(self, sid: str) -> str:
+        s = self.sensors.get(sid)
+        return s.label if s else sid

@@ -68,8 +68,10 @@ Flickable {
                         x: 16; y: 14; width: parent.width - 32; spacing: 8
                         Row {
                             width: parent.width
-                            Text { text: modelData.cfg.label || modelData.name; color: Theme.text; font.pixelSize: 15; font.weight: Font.DemiBold; width: parent.width - 70; elide: Text.ElideRight }
-                            Text { text: fc.lv.failsafe ? "FAILSAFE" : ""; color: Theme.bad; font.pixelSize: 11; font.weight: Font.Bold; width: 70; horizontalAlignment: Text.AlignRight }
+                            Text { text: modelData.cfg.label || modelData.name; color: Theme.text; font.pixelSize: 15; font.weight: Font.DemiBold; width: parent.width - fsb.width; elide: Text.ElideRight }
+                            Text { id: fsb; text: fc.lv.failsafe ? "FAILSAFE" + (fc.lv.why ? ": " + fc.lv.why : "") : ""
+                                color: Theme.bad; font.pixelSize: 11; font.weight: Font.Bold; width: Math.min(implicitWidth, parent.width * 0.7)
+                                elide: Text.ElideRight; horizontalAlignment: Text.AlignRight; anchors.verticalCenter: parent.verticalCenter }
                         }
                         Row {
                             spacing: 6
@@ -215,6 +217,19 @@ Flickable {
                 Text { text: "Runterregeln höchstens (pro Sekunde)"; color: Theme.muted; font.pixelSize: 13 }
                 NSlider { Layout.preferredWidth: 300; from: 0.5; to: 20; stepSize: 0.5; decimals: 1; suffix: " %"; value: (page.cooling.settings || {}).ramp_down || 3
                     onPressedChanged: if (!pressed) backend.call("set_cooling", { ramp_down: value }) }
+                Column {
+                    Layout.fillWidth: true; spacing: 2
+                    Text { text: "Leistung, wenn der Sensor einer Kurve ausfällt"; color: Theme.muted; font.pixelSize: 13 }
+                    Text { text: "Gilt nur für Kanäle, deren eigener Sensor fehlt. Die Pumpe läuft nie unter 50 %. Ab 50 °C Wasser gehen immer alle auf 100 %."
+                        color: Theme.faint; font.pixelSize: 12; wrapMode: Text.WordWrap; width: parent.width }
+                }
+                NSlider { Layout.preferredWidth: 300; from: 30; to: 100; stepSize: 5; suffix: " %"
+                    value: (page.cooling.settings || {}).failsafe_duty !== undefined ? page.cooling.settings.failsafe_duty : 100
+                    onPressedChanged: if (!pressed) backend.call("set_cooling", { failsafe_duty: value }) }
+                Text { text: "Sensor gilt als ausgefallen nach"; color: Theme.muted; font.pixelSize: 13 }
+                NSlider { Layout.preferredWidth: 300; from: 3; to: 60; stepSize: 1; suffix: " s"
+                    value: (page.cooling.settings || {}).sensor_timeout || 6
+                    onPressedChanged: if (!pressed) backend.call("set_cooling", { sensor_timeout: value }) }
                 Column {
                     Layout.fillWidth: true; spacing: 2
                     Text { text: "Kurven in der AIO speichern"; color: Theme.text; font.pixelSize: 13 }

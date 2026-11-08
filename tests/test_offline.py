@@ -147,10 +147,48 @@ class FanTest(unittest.TestCase):
         self.assertEqual(f.step("x", cfg, self.curves, Sensors(None), 1, self.settings, 0, None), 100)
         self.assertEqual(f.step("y", {"mode": "fixed", "fixed": 20}, self.curves, Sensors(30), 1, self.settings, 0, 55), 100)
 
+    def test_failsafe_duty_is_adjustable(self):
+        f = FanController()
+        cfg = {"mode": "curve", "curve": "c"}
+        st = {**self.settings, "failsafe_duty": 70}
+        self.assertEqual(f.step("p", cfg, self.curves, Sensors(None), 1, st, 50, 30), 70)
+        self.assertEqual(f.states["p"].reason, "sensor:liquid")
+        # the pump minimum still wins
+        self.assertEqual(f.step("q", cfg, self.curves, Sensors(None), 1, {**st, "failsafe_duty": 20}, 50, 30), 50)
+        # hot water overrides the setting
+        self.assertEqual(f.step("r", cfg, self.curves, Sensors(None), 1, st, 0, 55), 100)
+        self.assertEqual(f.states["r"].reason, "liquid")
+
     def test_fixed_is_immediate(self):
         f = FanController()
         f.step("x", {"mode": "fixed", "fixed": 80}, self.curves, Sensors(30), 1, self.settings, 0, 30)
         self.assertEqual(f.step("x", {"mode": "fixed", "fixed": 20}, self.curves, Sensors(30), 1, self.settings, 0, 30), 20)
+
+
+class SensorThreadTest(unittest.TestCase):
+    def test_hung_chip_does_not_age_other_sensors(self):
+        import threading, time
+        from neorgb import sensors as sm
+        real = sm._read
+        def slow_read(p):
+            if "gpu" in str(p):
+                time.sleep(3)          # like amdgpu with a stuck SMU
+            return "42000"
+        sm._read = slow_read
+        try:
+            s = sm.Sensors.__new__(sm.Sensors)
+            s.history, s._stop, s._threads = {}, threading.Event(), []
+            s.INTERVAL = 0.1
+            s.sensors = {"cpu": sm.Sensor("cpu", "CPU", "/x/cpu/temp1_input", chip="/x/cpu"),
+                         "gpu": sm.Sensor("gpu", "GPU", "/x/gpu/temp1_input", chip="/x/gpu")}
+            s.start()
+            time.sleep(1.5)
+            self.assertEqual(s.get("cpu", 1.0), 42.0)
+            self.assertIsNone(s.get("gpu", 1.0))
+            self.assertIsNone([x for x in s.listing(1.0) if x["id"] == "gpu"][0]["value"])
+            s.stop()
+        finally:
+            sm._read = real
 
 
 class EffectsTest(unittest.TestCase):

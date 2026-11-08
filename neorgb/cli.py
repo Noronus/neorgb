@@ -37,7 +37,7 @@ def _status(c: Client) -> None:
         cfg = f["cfg"]
         how = f"Kurve {cfg.get('curve')}" if cfg.get("mode") == "curve" else f"fest {cfg.get('fixed')} %"
         duty = "–" if f.get("duty") is None else f"{f['duty']} %"
-        fs = "  FAILSAFE" if f.get("failsafe") else ""
+        fs = f"  FAILSAFE ({f.get('why') or '?'})" if f.get("failsafe") else ""
         print(f"  {f['name']:<9} {f['rpm']:>5} rpm  {duty:>6}  ({how}){fs}   id {f['id']}")
     print("Zonen:")
     for z in s["zones"]:

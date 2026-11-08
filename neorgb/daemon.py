@@ -21,7 +21,7 @@ from pathlib import Path
 
 from .config import CONFIG_DIR, Config
 from .effects import EFFECTS, EffectEngine, Zone
-from .fancontrol import DEFAULT_CURVES, FanController, interpolate
+from .fancontrol import CRITICAL_LIQUID, DEFAULT_CURVES, FanController, interpolate
 from .hidraw import HidError, HidInfo, enumerate_hidraw
 from .sensors import Sensors
 from .devices import commander_core as ccmod
@@ -356,7 +356,7 @@ class Daemon:
     def __init__(self) -> None:
         self.cfg = Config()
         self.sensors = Sensors()
-        self.sensors.update()
+        self.sensors.start()
         self.engine = EffectEngine()
         self.fanctl = FanController()
         self.workers: dict[str, Worker] = {}
@@ -500,8 +500,16 @@ class Daemon:
                 duties[f["port"]] = int(round(duty))
         w.set_duties(duties)
 
+    def failsafe_text(self, st) -> str:
+        if not st or not st.failsafe:
+            return ""
+        if st.reason == "liquid":
+            return f"Wasser über {CRITICAL_LIQUID:.0f} °C"
+        if st.reason.startswith("sensor:"):
+            return f"{self.sensors.label(st.reason[7:])} fehlt"
+        return ""
+
     def fan_tick(self, dt: float) -> None:
-        self.sensors.update()
         with self.wlock:
             ws = [w for w in self.workers.values() if isinstance(w, CommanderCoreWorker) and w.status == "ok"]
         for w in ws:
@@ -560,6 +568,7 @@ class Daemon:
                 w.join(5)
             for src in self.extra_sources:
                 src.close()
+            self.sensors.stop()
             if self.cfg.dirty:
                 self.cfg.save()
             try:
@@ -599,7 +608,7 @@ class Daemon:
             for f in self.all_fans():
                 st = self.fanctl.states.get(f["id"])
                 fans.append({**f, "target": st.target if st else None, "temp": st.temp if st else None,
-                             "failsafe": st.failsafe if st else False,
+                             "failsafe": st.failsafe if st else False, "why": self.failsafe_text(st),
                              "cfg": snap["cooling"]["channels"].get(f["id"]) or default_fan_cfg(f["pump"])})
             zones = [{"id": z.id, "device": z.device, "name": z.name, "leds": z.leds, "segments": z.segs(),
                       "kind": z.kind, "cfg": snap["lighting"]["zones"].get(z.id, {"follow": True})}
@@ -679,9 +688,11 @@ class Daemon:
             return True
         if method == "set_cooling":
             with c.lock:
-                for k in ("hysteresis", "ramp_up", "ramp_down"):
+                lim = {"hysteresis": (0, 10), "ramp_up": (0.5, 100), "ramp_down": (0.5, 100),
+                       "failsafe_duty": (0, 100), "sensor_timeout": (2, 120)}
+                for k, (lo, hi) in lim.items():
                     if k in p:
-                        c.data["cooling"]["settings"][k] = float(p[k])
+                        c.data["cooling"]["settings"][k] = max(lo, min(hi, float(p[k])))
                 if "hw_fallback" in p:
                     c.data["cooling"]["hw_fallback"] = bool(p["hw_fallback"])
             self.changed(cooling=True)

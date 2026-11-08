@@ -9,8 +9,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-CRITICAL_LIQUID = 50.0     # everything to 100 % above this
-SENSOR_TIMEOUT = 6.0       # seconds without data -> failsafe
+CRITICAL_LIQUID = 50.0     # everything to 100 % above this (not adjustable)
+SENSOR_TIMEOUT = 6.0       # default: seconds without data -> failsafe
+FAILSAFE_DUTY = 100.0      # default: duty while a curve's sensor is missing
 
 
 def interpolate(points: list[list[float]], temp: float) -> float:
@@ -52,7 +53,8 @@ DEFAULT_CURVES = {
     },
 }
 
-DEFAULT_SETTINGS = {"hysteresis": 1.5, "ramp_up": 8.0, "ramp_down": 3.0}
+DEFAULT_SETTINGS = {"hysteresis": 1.5, "ramp_up": 8.0, "ramp_down": 3.0,
+                    "failsafe_duty": FAILSAFE_DUTY, "sensor_timeout": SENSOR_TIMEOUT}
 
 
 @dataclass
@@ -62,6 +64,7 @@ class ChannelState:
     ref_temp: float | None = None
     temp: float | None = None
     failsafe: bool = False
+    reason: str = ""               # "sensor:<id>" or "liquid" while failsafe
 
 
 class FanController:
@@ -77,6 +80,7 @@ class FanController:
             st.duty = st.target = None
             return None
 
+        st.reason = ""
         if mode == "fixed":
             target = float(cfg.get("fixed", 50))
             st.failsafe = False
@@ -85,11 +89,15 @@ class FanController:
             curve = curves.get(cfg.get("curve", "balanced")) or DEFAULT_CURVES["balanced"]
             sid = curve.get("sensor", "liquid")
             avg = float(curve.get("average", 0) or 0)
-            temp = sensors.average(sid, avg) if avg > 0 else sensors.get(sid, SENSOR_TIMEOUT)
+            timeout = float(settings.get("sensor_timeout", SENSOR_TIMEOUT))
+            temp = sensors.get(sid, timeout)
+            if temp is not None and avg > 0:
+                temp = sensors.average(sid, avg)
             st.temp = temp
             if temp is None:
                 st.failsafe = True
-                target = 100.0
+                st.reason = f"sensor:{sid}"
+                target = float(settings.get("failsafe_duty", FAILSAFE_DUTY))
             else:
                 st.failsafe = False
                 hyst = float(settings.get("hysteresis", 1.5))
@@ -100,6 +108,7 @@ class FanController:
         if liquid is not None and liquid >= CRITICAL_LIQUID:
             target = 100.0
             st.failsafe = True
+            st.reason = "liquid"
 
         target = max(min_duty, min(100.0, target))
         st.target = target

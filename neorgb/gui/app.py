@@ -21,7 +21,7 @@ SOCKET = str(RUNTIME / "neorgb.sock")
 HERE = Path(__file__).resolve().parent
 
 
-LIVE_FAN_FIELDS = ("rpm", "duty", "target", "temp", "failsafe")
+LIVE_FAN_FIELDS = ("rpm", "duty", "target", "temp", "failsafe", "why")
 
 
 def _key_prop(key: str, sig: Signal) -> Property:
