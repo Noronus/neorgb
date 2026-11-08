@@ -75,6 +75,8 @@ Flickable {
                     id: chBox
                     property int ch: index
                     property var its: page.items(dev.key, ch)
+                    property bool testing: !!dev.test && dev.test.ch === ch
+                    property var testPreset: pre.currentIndex < page.presets.length ? page.presets[pre.currentIndex] : { name: cnt.value + " LEDs", leds: cnt.value, kind: "linear" }
                     property int total: its.reduce(function (a, b) { return a + b.leds }, 0)
                     width: parent.width
                     height: chCol.implicitHeight + 28
@@ -87,13 +89,50 @@ Flickable {
                             Text { text: "Kanal " + (chBox.ch + 1); color: Theme.text; font.pixelSize: 14; font.weight: Font.DemiBold }
                             Text { text: chBox.total + " LEDs"; color: chBox.total > 204 ? Theme.bad : Theme.accent; font.pixelSize: 13 }
                             Item { Layout.fillWidth: true }
+                            NButton { text: chBox.testing ? "Zählen beenden" : "LEDs zählen"; primary: !chBox.its.length && !chBox.testing
+                                onClicked: backend.call("led_test", { key: dev.key, ch: chBox.ch, block: chBox.testPreset.leds, on: !chBox.testing }) }
                             NButton { text: "Aufblinken"; enabled: page.zoneFor(dev.key, chBox.ch) !== null
                                 onClicked: backend.call("identify", { zone: dev.key + "/ch" + chBox.ch }) }
                             NButton { text: "Leeren"; danger: true; enabled: chBox.its.length > 0; onClicked: page.saveItems(dev.key, chBox.ch, []) }
                         }
+                        Rectangle {
+                            visible: chBox.testing
+                            width: parent.width; height: tcol.implicitHeight + 24
+                            radius: 10; color: Theme.card; border.color: Theme.accent
+                            Column {
+                                id: tcol
+                                x: 12; y: 12; width: parent.width - 24; spacing: 10
+                                Text { width: parent.width; wrapMode: Text.WordWrap; color: Theme.text; font.pixelSize: 13
+                                    text: "Jedes Teil an diesem Kanal leuchtet jetzt in einer eigenen Farbe (je " + (dev.test ? dev.test.block : 10) + " LEDs, Typ oben im Auswahlfeld). Schau ins Gehäuse und zähle die Farben in dieser Reihenfolge:" }
+                                Row {
+                                    spacing: 10
+                                    Repeater {
+                                        model: [["#ff0000", "Rot"], ["#00ff00", "Grün"], ["#003cff", "Blau"], ["#ffc800", "Gelb"], ["#dc00ff", "Lila"], ["#00e6e6", "Türkis"], ["#ffffff", "Weiß"], ["#ff5000", "Orange"]]
+                                        Column {
+                                            spacing: 4
+                                            Rectangle { width: 46; height: 14; radius: 7; color: modelData[0]; anchors.horizontalCenter: parent.horizontalCenter }
+                                            Text { text: (index + 1) + ". " + modelData[1]; color: Theme.muted; font.pixelSize: 11; anchors.horizontalCenter: parent.horizontalCenter }
+                                        }
+                                    }
+                                }
+                                Text { width: parent.width; wrapMode: Text.WordWrap; color: Theme.faint; font.pixelSize: 12
+                                    text: "Was dunkel bleibt oder seine alten Farben behält, hängt nicht an diesem Kanal. Ist eine Farbe nur halb zu sehen, oben einen anderen Typ wählen und neu zählen." }
+                                Row {
+                                    spacing: 6
+                                    Text { text: "Ich sehe:"; color: Theme.text; font.pixelSize: 13; anchors.verticalCenter: parent.verticalCenter }
+                                    Repeater {
+                                        model: 8
+                                        NButton { text: (index + 1) === 1 ? "1 Farbe" : (index + 1) + ""; onClicked: {
+                                            var a = []; for (var i = 0; i <= index; i++) a.push({ name: chBox.testPreset.name, leds: chBox.testPreset.leds, kind: chBox.testPreset.kind })
+                                            page.saveItems(dev.key, chBox.ch, a) } }
+                                    }
+                                    NButton { text: "nichts"; danger: true; onClicked: backend.call("led_test", { key: dev.key, ch: chBox.ch, on: false }) }
+                                }
+                            }
+                        }
                         LedPreview {
                             width: parent.width
-                            visible: page.zoneFor(dev.key, chBox.ch) !== null
+                            visible: page.zoneFor(dev.key, chBox.ch) !== null && !chBox.testing
                             property var zn: page.zoneFor(dev.key, chBox.ch)
                             hex: zn ? (win.frame[zn.id] || "") : ""
                             kind: zn ? zn.kind : "linear"; segments: zn ? zn.segments : []; leds: zn ? zn.leds : 0

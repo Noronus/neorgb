@@ -1,10 +1,13 @@
 """Corsair Lighting Node PRO / CORE (and LS100 / LT100, same protocol).
 
 These hubs are plain addressable-LED drivers: they cannot detect what is
-plugged in, so the LED count per channel has to come from the user.  The
-firmware also needs that count in an effect config (0x35) or it keeps
-whatever an older program stored, which is a common reason for strips that
-only light partly or flicker.
+plugged in, so the LED count per channel has to come from the user.  When
+the count is too small, the LEDs behind it keep their old colour; that is
+the usual reason for strips that only light partly.  The hardware effect
+(0x35) that runs while NeoRGB is stopped also carries the count.
+
+Software mode follows the sequence OpenRGB uses: port state 02, direct
+colours, commit.  No reset or effect config is needed for it.
 
 Commands (64 byte out, 16 byte in, no report ids):
   02            firmware            -> 00 maj min patch
@@ -58,6 +61,21 @@ PRESETS = [
 ]
 
 
+# "LEDs zählen": every device on a channel gets its own colour
+TEST_COLORS = [(255, 0, 0), (0, 255, 0), (0, 60, 255), (255, 200, 0),
+               (220, 0, 255), (0, 230, 230), (255, 255, 255), (255, 80, 0)]
+TEST_SECONDS = 120
+
+
+def test_pattern(block: int, leds: int = MAX_LEDS) -> bytes:
+    """Blocks of `block` LEDs in TEST_COLORS, dark after the last colour."""
+    block = max(1, int(block))
+    out = bytearray(leds * 3)
+    for i in range(min(leds, block * len(TEST_COLORS))):
+        out[i * 3:i * 3 + 3] = bytes(TEST_COLORS[i // block])
+    return bytes(out)
+
+
 class LightingNode:
     kind = "lighting_node"
 
@@ -93,19 +111,17 @@ class LightingNode:
                 self.firmware = f"{r[1]}.{r[2]}.{r[3]}"
 
     def configure(self, counts: list[int]) -> None:
-        """Tell the hub how many LEDs hang on each channel and take over."""
+        """Take over the channels that have LEDs; the others keep their own effect."""
         counts = [max(0, min(MAX_LEDS, int(c))) for c in counts[: self.channels]]
         counts += [0] * (self.channels - len(counts))
         with self.lock:
             self.dev.drain()
             for ch, n in enumerate(counts):
-                self._xfer(bytes([0x37, ch]))
+                self._xfer(bytes([0x38, ch, 0x02 if n else 0x01]))
                 if n:
-                    self._xfer(bytes([0x35, ch, 0x00, n, HW_EFFECTS["static"], 0, 0, 0, 0,
-                                      0x00, 0x00, 0x00]))
-                self._xfer(bytes([0x39, ch, 100]))
+                    self._xfer(bytes([0x39, ch, 100]))
             self.counts = counts
-            self.software = True
+            self.software = any(counts)
             self._xfer(b"\x33\xff")
             self.last_commit = time.monotonic()
 
@@ -139,13 +155,14 @@ class LightingNode:
         mode = HW_EFFECTS.get(effect, 0x00)
         with self.lock:
             for ch, n in enumerate(self.counts):
-                self._xfer(bytes([0x37, ch]))
                 if not n:
-                    continue
+                    continue   # not ours: keep whatever the hub stored there
+                self._xfer(bytes([0x37, ch]))
                 self._xfer(bytes([0x34, ch]))
                 self._xfer(bytes([0x38, ch, 0x01]))
                 c = [v for rgb in colors for v in rgb]
-                self._xfer(bytes([0x35, ch, 0x00, n, mode, speed, 0x00, 0x00, 0x00] + c + [0] * 6))
+                # ch, start, count, mode, speed, direction, random colours, 0xff (as liquidctl)
+                self._xfer(bytes([0x35, ch, 0x00, n, mode, speed, 0x00, 0x00, 0xFF] + c + [0] * 6))
             self._xfer(b"\x33\xff")
             self.software = False
 

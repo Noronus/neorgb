@@ -259,20 +259,52 @@ class LightingNodeWorker(Worker):
                 self.zones.append(Zone(f"{self.key}/ch{ch}", self.key, c.get("name") or f"Kanal {ch + 1}",
                                        n, segs, kind))
         self.counts = counts
+        self.test: dict | None = None        # {"ch", "block", "until"} while counting LEDs
+        self._reconfig = False
         # nothing configured yet: leave the hub alone, it keeps its own effect
         if any(counts):
             ln.configure(counts)
         self.blank = {z.id: bytes(z.leds * 3) for z in self.zones}
         self.last_write = 0.0
 
+    # called from the API thread
+    def start_test(self, ch: int, block: int) -> None:
+        if not 0 <= ch < self.dev.channels:
+            raise ValueError(f"Kanal {ch + 1} gibt es nicht")
+        self.test = {"ch": ch, "block": max(1, block), "until": time.monotonic() + lnmod.TEST_SECONDS}
+        self._reconfig = True
+        self._wake.set()
+
+    def stop_test(self) -> None:
+        self.test = None
+        self._reconfig = True
+        self._wake.set()
+
+    def test_info(self) -> dict | None:
+        t = self.test
+        return {"ch": t["ch"], "block": t["block"]} if t else None
+
     def tick(self) -> None:
+        test = self.test
+        if test and time.monotonic() > test["until"]:
+            self.test = test = None
+            self._reconfig = True
+        if self._reconfig:
+            self._reconfig = False
+            counts = list(self.counts)
+            if test:
+                counts[test["ch"]] = lnmod.MAX_LEDS
+            self.dev.configure(counts)
         frame = self.take_frame()
-        if frame is not None and self.zones:
+        if frame is not None and (self.zones or test):
             per = []
             zi = {z.id: z for z in self.zones}
             for ch in range(self.dev.channels):
                 zid = f"{self.key}/ch{ch}"
-                per.append(frame.get(zid, self.blank.get(zid, b"")) if zid in zi else b"")
+                if test and ch == test["ch"]:
+                    per.append(lnmod.test_pattern(test["block"]))
+                else:
+                    per.append(frame.get(zid, self.blank.get(zid, b"")) if zid in zi else b"")
             self.dev.write_colors(per)
         self.dev.keepalive()
 
@@ -535,7 +567,7 @@ class Daemon:
                     if isinstance(w, CommanderCoreWorker) and w.status == "ok":
                         extra[w.key] = {"detected": getattr(w, "detected", [])}
                     if isinstance(w, LightingNodeWorker) and w.status == "ok":
-                        extra[w.key] = {"channels": w.dev.channels}
+                        extra[w.key] = {"channels": w.dev.channels, "test": w.test_info()}
             for d in devs:
                 d.update(extra.get(d["key"], {}))
             rank = {"commander_core": 0, "lighting_node": 1}
@@ -582,6 +614,16 @@ class Daemon:
                     base.update(p["spec"])
                     z["spec"] = base
             self.changed()
+            return True
+        if method == "led_test":
+            with self.wlock:
+                w = self.workers.get(p["key"])
+            if not isinstance(w, LightingNodeWorker) or w.status != "ok":
+                raise ValueError("Lighting Node nicht bereit")
+            if p.get("on", True):
+                w.start_test(int(p["ch"]), int(p.get("block", 10)))
+            else:
+                w.stop_test()
             return True
         if method == "identify":
             self.identify[p["zone"]] = time.monotonic() + float(p.get("seconds", 4))

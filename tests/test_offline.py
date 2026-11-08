@@ -28,13 +28,23 @@ class LightingNodeTest(unittest.TestCase):
         node.counts, node.software, node.last_commit, node.errors = [0, 0], False, 0, 0
         return node
 
-    def test_configure_sends_led_count(self):
+    def test_configure_takes_only_configured_channels(self):
         node = self.make()
         node.configure([40, 0])
-        cfg = [p for p in node.dev.sent if p[0] == 0x35]
-        self.assertEqual(len(cfg), 1)
-        self.assertEqual(cfg[0][1:5], bytes([0, 0, 40, ln.HW_EFFECTS["static"]]))
-        self.assertEqual(node.dev.sent[-1], b"\x33\xff")
+        sent = node.dev.sent
+        self.assertIn(b"\x38\x00\x02", [x[:3] for x in sent])   # ch 1 to software
+        self.assertIn(b"\x38\x01\x01", [x[:3] for x in sent])   # empty ch stays hardware
+        self.assertFalse([x for x in sent if x[0] in (0x37, 0x35)])  # no reset, no effect
+        self.assertEqual(sent[-1], b"\x33\xff")
+        self.assertTrue(node.software)
+
+    def test_led_count_pattern(self):
+        pat = ln.test_pattern(10)
+        self.assertEqual(len(pat), ln.MAX_LEDS * 3)
+        self.assertEqual(pat[0:3], bytes(ln.TEST_COLORS[0]))
+        self.assertEqual(pat[27:30], bytes(ln.TEST_COLORS[0]))    # LED 10
+        self.assertEqual(pat[30:33], bytes(ln.TEST_COLORS[1]))    # LED 11
+        self.assertEqual(pat[80 * 3:80 * 3 + 3], b"\x00\x00\x00")  # after 8 colours: dark
 
     def test_colors_are_split_in_planes_and_chunks(self):
         node = self.make()
@@ -57,6 +67,14 @@ class LightingNodeTest(unittest.TestCase):
         node.set_hardware_effect("rainbow_wave")
         cfgs = [p for p in node.dev.sent if p[0] == 0x35]
         self.assertEqual([p[3] for p in cfgs], [10, 20])
+        self.assertEqual(cfgs[0][8], 0xFF)
+
+    def test_hardware_effect_leaves_empty_channels_alone(self):
+        node = self.make()
+        node.configure([10, 0])
+        node.dev.sent.clear()
+        node.set_hardware_effect("rainbow_wave")
+        self.assertFalse([x for x in node.dev.sent if x[:2] in (b"\x37\x01", b"\x35\x01", b"\x38\x01")])
         self.assertTrue(any(p[:3] == b"\x38\x00\x01" for p in node.dev.sent))
 
 

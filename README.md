@@ -33,13 +33,14 @@ Nicht-Corsair-Geräte und die OpenRGB-udev-Regeln (geben Zugriff auf
 ## Lighting Nodes einrichten
 
 Lighting Node PRO/CORE erkennen nicht, was angeschlossen ist. Unter
-**Geräte** pro Kanal eintragen, was in welcher Reihenfolge dranhängt (z. B.
-4× „RGB-LED-Streifen“ = 40 LEDs). NeoRGB schickt die Anzahl beim Start an den
-Hub. Ohne diese Angabe behält die Firmware die Länge, die ein anderes Programm
-zuletzt gespeichert hat. Dann leuchten Streifen nur teilweise oder flackern.
-„Aufblinken“ zeigt, welcher Kanal welcher ist.
+**Geräte** beim Kanal den Typ wählen (z. B. „RGB-LED-Streifen“) und
+**LEDs zählen** drücken: Jedes Teil am Kanal leuchtet dann in einer eigenen
+Farbe (Rot, Grün, Blau, …). Unten anklicken, wie viele Farben zu sehen sind,
+fertig. Ist die Anzahl zu klein, behalten die LEDs dahinter ihre alte Farbe.
+Dann leuchten Streifen nur teilweise.
 
-Ist ein Kanal leer, fasst NeoRGB den Hub nicht an.
+Ist ein Kanal leer, fasst NeoRGB ihn nicht an. Er behält das Licht, das im
+Hub gespeichert ist.
 
 ## Dateien
 
