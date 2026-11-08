@@ -69,6 +69,26 @@ class LightingNodeTest(unittest.TestCase):
         self.assertEqual([p[3] for p in cfgs], [10, 20])
         self.assertEqual(cfgs[0][8], 0xFF)
 
+    def test_count_test_blanks_its_leds_when_done(self):
+        import threading
+        from neorgb.daemon import LightingNodeWorker
+        w = LightingNodeWorker.__new__(LightingNodeWorker)
+        threading.Thread.__init__(w, daemon=True)
+        w.dev, w.counts, w.zones, w.blank = self.make(), [10, 0], [], {}
+        w.name, w.key, w.test, w._ending, w._reconfig = "LNP", "k", None, None, False
+        w._lock, w._wake, w._frame = threading.Lock(), threading.Event(), None
+        w.dev.configure(w.counts)
+        w.start_test(0, 10)
+        w.tick()
+        self.assertEqual(w.dev.counts[0], ln.MAX_LEDS)
+        w.stop_test()
+        w.dev.dev.sent.clear()
+        w.tick()
+        zeros = [x for x in w.dev.dev.sent if x[0] == 0x32 and x[1] == 0]
+        self.assertEqual(sum(x[3] for x in zeros) // 3, ln.MAX_LEDS)   # all 204 LEDs, 3 planes
+        self.assertTrue(all(not any(x[5:5 + x[3]]) for x in zeros))
+        self.assertEqual(w.dev.counts, [10, 0])
+
     def test_hardware_effect_leaves_empty_channels_alone(self):
         node = self.make()
         node.configure([10, 0])

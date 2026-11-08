@@ -260,6 +260,7 @@ class LightingNodeWorker(Worker):
                                        n, segs, kind))
         self.counts = counts
         self.test: dict | None = None        # {"ch", "block", "until"} while counting LEDs
+        self._ending: dict | None = None     # test that just ended, its LEDs still need blanking
         self._reconfig = False
         # nothing configured yet: leave the hub alone, it keeps its own effect
         if any(counts):
@@ -271,11 +272,16 @@ class LightingNodeWorker(Worker):
     def start_test(self, ch: int, block: int) -> None:
         if not 0 <= ch < self.dev.channels:
             raise ValueError(f"Kanal {ch + 1} gibt es nicht")
+        if self.test and self.test["ch"] != ch:
+            self._ending = self.test
+        log.info("%s: counting LEDs on channel %d (blocks of %d)", self.name, ch + 1, block)
         self.test = {"ch": ch, "block": max(1, block), "until": time.monotonic() + lnmod.TEST_SECONDS}
         self._reconfig = True
         self._wake.set()
 
     def stop_test(self) -> None:
+        if self.test:
+            self._ending = self.test
         self.test = None
         self._reconfig = True
         self._wake.set()
@@ -287,10 +293,11 @@ class LightingNodeWorker(Worker):
     def tick(self) -> None:
         test = self.test
         if test and time.monotonic() > test["until"]:
-            self.test = test = None
+            self._ending, self.test, test = test, None, None
             self._reconfig = True
         if self._reconfig:
             self._reconfig = False
+            self._blank_ended_test()
             counts = list(self.counts)
             if test:
                 counts[test["ch"]] = lnmod.MAX_LEDS
@@ -308,11 +315,25 @@ class LightingNodeWorker(Worker):
             self.dev.write_colors(per)
         self.dev.keepalive()
 
+    def _blank_ended_test(self) -> None:
+        """LEDs behind the configured count keep their last colour: switch the test colours off."""
+        ending, self._ending = self._ending, None
+        if ending is None:
+            return
+        per = [b""] * self.dev.channels
+        per[ending["ch"]] = bytes(lnmod.MAX_LEDS * 3)
+        self.dev.write_colors(per)
+
     def shutdown(self) -> None:
         dev = getattr(self, "dev", None)
         if dev is None:
             return
         try:
+            if getattr(self, "test", None):
+                self._ending, self.test = self.test, None
+                self._blank_ended_test()
+            if hasattr(self, "counts"):
+                dev.counts = list(self.counts)   # store the real length, not the test length
             if any(self.counts):
                 eff, colors = self.d.hw_lighting_for(self.key)
                 if eff == "off":
