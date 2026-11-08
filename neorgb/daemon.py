@@ -658,6 +658,10 @@ class Daemon:
                 c.data["openrgb"].update({k: v for k, v in p.items() if k in ("enabled", "host", "port", "spawn")})
             self.changed()
             return True
+        if method == "hw_config":
+            with self.wlock:
+                ws = [w for w in self.workers.values() if isinstance(w, CommanderCoreWorker) and w.status == "ok"]
+            return {w.key: w.dev.read_hw_config() for w in ws}
         if method == "rescan":
             self.scan()
             return True

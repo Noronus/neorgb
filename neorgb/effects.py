@@ -69,7 +69,7 @@ EFFECTS = {
     "static":      {"name": "Statisch", "params": ["colors1"]},
     "breathing":   {"name": "Atmen", "params": ["colors", "speed"]},
     "spectrum":    {"name": "Farbwechsel", "params": ["speed"]},
-    "rainbow":     {"name": "Regenbogen-Welle", "params": ["speed", "scale", "reverse"]},
+    "rainbow":     {"name": "Regenbogen", "params": ["speed", "scale", "reverse"]},
     "gradient":    {"name": "Farbverlauf", "params": ["colors", "speed", "scale", "reverse"]},
     "spin":        {"name": "Kreisen", "params": ["colors2", "speed", "tail", "reverse"]},
     "comet":       {"name": "Komet", "params": ["colors2", "speed", "tail", "reverse"]},

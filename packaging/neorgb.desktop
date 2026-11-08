@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=NeoRGB
+GenericName=RGB- und Lüftersteuerung
+Comment=Beleuchtung, Lüfterkurven und AIO-Pumpe steuern
+Exec=@BIN@/neorgb
+Icon=neorgb
+Terminal=false
+Categories=Settings;HardwareSettings;System;
+Keywords=RGB;LED;Corsair;Lüfter;Fan;AIO;Pumpe;OpenRGB;
+StartupWMClass=neorgb

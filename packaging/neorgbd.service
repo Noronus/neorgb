@@ -1,0 +1,16 @@
+[Unit]
+Description=NeoRGB lighting, fan and pump control
+Documentation=file://%h/Documents/Claude/neorgb/README.md
+After=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=@BIN@/neorgbd
+Environment=PYTHONUNBUFFERED=1
+Restart=on-failure
+RestartSec=3
+# On stop the daemon hands the AIO back to its stored hardware curves.
+TimeoutStopSec=15
+
+[Install]
+WantedBy=default.target
