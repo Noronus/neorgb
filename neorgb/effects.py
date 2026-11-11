@@ -172,7 +172,35 @@ class EffectEngine:
             out[i * 3] = max(0, min(255, int(c[0] * bri + 0.5)))
             out[i * 3 + 1] = max(0, min(255, int(c[1] * bri + 0.5)))
             out[i * 3 + 2] = max(0, min(255, int(c[2] * bri + 0.5)))
+        floor = max(0.0, min(100.0, float(spec.get("min_brightness", 0) or 0))) / 100.0
+        if floor > 0:
+            self._apply_floor(out, floor, spec, colors)
         return out
+
+    @staticmethod
+    def _apply_floor(out: bytearray, floor: float, spec: dict, colors: list[tuple]) -> None:
+        """No LED gets darker than ``floor`` (0..1, same perceptual scale as brightness).
+
+        Dim LEDs are lifted keeping their colour.  Black ones take the
+        background (if the effect has one) or the effect's first colour.
+        """
+        target = 255.0 * floor * floor
+        bg = hex_to_rgb(spec.get("background", "#000000"))
+        fill = bg if max(bg) > 0 else colors[0]
+        if max(fill) == 0:
+            fill = (255, 255, 255)
+        for i in range(0, len(out), 3):
+            r, g, b = out[i], out[i + 1], out[i + 2]
+            v = max(r, g, b)
+            if v >= target:
+                continue
+            if v == 0:
+                r, g, b = fill
+                v = max(fill)
+            k = target / v
+            out[i] = min(255, int(r * k + 0.5))
+            out[i + 1] = min(255, int(g * k + 0.5))
+            out[i + 2] = min(255, int(b * k + 0.5))
 
     @staticmethod
     def _positions(zone: Zone) -> list[float]:

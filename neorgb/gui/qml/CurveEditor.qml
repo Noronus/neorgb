@@ -35,7 +35,7 @@ Item {
     function tOf(x) { return tMin + (x - padL) / plotW * (tMax - tMin) }
     function dOf(y) { return (10 + plotH - y) / plotH * 100 }
     function nearest(x, y) {
-        var best = -1, bd = 14 * 14
+        var best = -1, bd = 20 * 20
         for (var i = 0; i < pts.length; i++) {
             var dx = px(pts[i][0]) - x, dy = py(pts[i][1]) - y
             if (dx * dx + dy * dy < bd) { bd = dx * dx + dy * dy; best = i }
@@ -117,6 +117,9 @@ Item {
         anchors.fill: parent
         enabled: ed.editable
         hoverEnabled: true
+        // the page around is a Flickable: without this it takes over a left-drag,
+        // scrolls instead of moving the point and leaves the drag half finished
+        preventStealing: true
         acceptedButtons: Qt.LeftButton | Qt.RightButton
         cursorShape: ed.drag >= 0 ? Qt.ClosedHandCursor : (ed.hover >= 0 ? Qt.OpenHandCursor : Qt.CrossCursor)
         onPressed: function (m) {
@@ -135,6 +138,7 @@ Item {
             cv.requestPaint()
         }
         onReleased: { if (ed.drag >= 0) { ed.drag = -1; ed.edited(ed.pts) } }
+        onCanceled: { if (ed.drag >= 0) { ed.drag = -1; ed.edited(ed.pts) } }
         onDoubleClicked: function (m) {
             if (ed.nearest(m.x, m.y) >= 0 || ed.pts.length >= ed.maxPoints) return
             var t = Math.round(ed.tOf(m.x)), d = Math.round(Math.max(ed.minDuty, Math.min(100, ed.dOf(m.y))))

@@ -18,3 +18,4 @@ CoolingPage 1.0 CoolingPage.qml
 LightingPage 1.0 LightingPage.qml
 DevicesPage 1.0 DevicesPage.qml
 SettingsPage 1.0 SettingsPage.qml
+WheelScroll 1.0 WheelScroll.qml

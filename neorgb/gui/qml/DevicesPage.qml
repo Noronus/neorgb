@@ -10,6 +10,7 @@ Flickable {
     readonly property var presets: st.presets || []
     contentHeight: col.implicitHeight + 56
     clip: true
+    WheelScroll { flick: page }
     ScrollBar.vertical: ScrollBar {}
 
     readonly property var hwNames: ({
@@ -31,6 +32,18 @@ Flickable {
         var chans = {}; chans[String(ch)] = c
         backend.call("set_device", { key: key, channels: chans })
     }
+    property string addingHost: ""
+    function addWled() {
+        var h = wHost.text.trim()
+        if (!h) return
+        addingHost = h.replace(/^https?:\/\//, "").replace(/\/.*$/, "")
+        backend.call("add_wled", { host: h, name: wName.text.trim() })
+    }
+    // the new device shows up in the list: empty the form
+    Connections { target: page.st; function onDevicesChanged() {
+        var d = page.st.devices || []
+        for (var i = 0; i < d.length; i++) if (d[i].kind === "wled" && d[i].host === page.addingHost) { wHost.text = ""; wName.text = ""; page.addingHost = "" }
+    } }
     function zoneFor(key, ch) { var z = st.zones || []; for (var i = 0; i < z.length; i++) if (z[i].id === key + "/ch" + ch) return z[i]; return null }
 
     ColumnLayout {
@@ -45,20 +58,69 @@ Flickable {
                 color: Theme.muted; font.pixelSize: 13; wrapMode: Text.WordWrap; width: col.width }
         }
 
+        Card {
+            Layout.fillWidth: true
+            title: "WLED-Gerät hinzufügen"
+            subtitle: "IP-Adresse oder Hostname des WLED-Controllers. NeoRGB schickt ihm die Effekte per DDP."
+            Row {
+                spacing: 10
+                TextField {
+                    id: wHost
+                    width: 240; height: 34
+                    placeholderText: "z. B. 10.0.5.120"; placeholderTextColor: Theme.faint
+                    color: Theme.text; font.pixelSize: 13
+                    background: Rectangle { radius: 9; color: Theme.panel; border.color: wHost.activeFocus ? Theme.accent : Theme.line }
+                    onAccepted: page.addWled()
+                }
+                TextField {
+                    id: wName
+                    width: 200; height: 34
+                    placeholderText: "Name (optional)"; placeholderTextColor: Theme.faint
+                    color: Theme.text; font.pixelSize: 13
+                    background: Rectangle { radius: 9; color: Theme.panel; border.color: wName.activeFocus ? Theme.accent : Theme.line }
+                    onAccepted: page.addWled()
+                }
+                NButton { text: "Hinzufügen"; primary: true; enabled: wHost.text.trim().length > 0; onClicked: page.addWled() }
+            }
+        }
+
         Repeater {
             model: st.devices || []
             Card {
                 id: dc
                 property var dev: modelData
+                property bool off: dev.status === "disabled"
                 Layout.fillWidth: true
+                opacity: off ? 0.6 : 1
                 title: dev.name
-                subtitle: "Firmware " + (dev.firmware || "?") + " · " + (dev.path || "") + (dev.status !== "ok" ? " · " + dev.status + (dev.error ? ": " + dev.error : "") : "")
-                header: [ Rectangle { width: 10; height: 10; radius: 5; color: dc.dev.status === "ok" ? Theme.good : (dc.dev.status === "starting" ? Theme.warn : Theme.bad) } ]
+                subtitle: off ? "Ausgeschlossen: NeoRGB fasst dieses Gerät nicht an"
+                              : "Firmware " + (dev.firmware || "?") + " · " + (dev.path || "") + (dev.status !== "ok" ? " · " + dev.status + (dev.error ? ": " + dev.error : "") : "")
+                header: [
+                    NButton { visible: dc.dev.key !== "openrgb"; text: dc.off ? "Wieder einbinden" : "Ausschließen"; primary: dc.off; danger: !dc.off
+                        onClicked: backend.call("set_device", { key: dc.dev.key, disabled: !dc.off, name: dc.dev.name, kind: dc.dev.kind }) },
+                    Rectangle { width: 10; height: 10; radius: 5; anchors.verticalCenter: parent.verticalCenter
+                        color: dc.off ? Theme.faint : (dc.dev.status === "ok" ? Theme.good : (dc.dev.status === "starting" ? Theme.warn : Theme.bad)) }
+                ]
 
-                Loader {
-                    width: parent.width
-                    property var dev: dc.dev
-                    sourceComponent: dc.dev.kind === "lighting_node" ? lnC : (dc.dev.kind === "commander_core" ? ccC : otherC)
+                Column {
+                    width: parent.width; spacing: 14
+                    Text { visible: dc.off; width: parent.width; wrapMode: Text.WordWrap; color: Theme.muted; font.pixelSize: 13
+                        text: dc.dev.kind === "commander_core"
+                              ? "Lüfter und Pumpe regelt dann die AIO selbst nach ihrer gespeicherten Kurve. Die Einstellung bleibt auch nach Neustarts."
+                              : "Das Gerät behält sein eigenes Licht. Die Einstellung bleibt auch nach Neustarts." }
+                    Loader {
+                        visible: !dc.off; active: !dc.off
+                        width: parent.width
+                        property var dev: dc.dev
+                        sourceComponent: dc.dev.kind === "lighting_node" ? lnC : (dc.dev.kind === "commander_core" ? ccC : (dc.dev.kind === "wled" ? wledC : otherC))
+                    }
+                    RowLayout {
+                        visible: !dc.off && (dc.dev.zones || []).length > 0
+                        width: Math.min(parent.width, 720); spacing: 24
+                        Text { text: "Mindesthelligkeit"; color: Theme.muted; font.pixelSize: 13 }
+                        NSlider { Layout.fillWidth: true; from: 0; to: 100; suffix: " %"; value: page.devCfg(dc.dev.key).min_brightness || 0
+                            onPressedChanged: if (!pressed) backend.call("set_device", { key: dc.dev.key, min_brightness: Math.round(value), restart: false }) }
+                    }
                 }
             }
         }
@@ -206,6 +268,31 @@ Flickable {
                         onActivated: function (i) { var p = {}; p[String(index)] = opts[i] < 0 ? null : opts[i]; backend.call("set_device", { key: dev.key, ports: p }) }
                     }
                 }
+            }
+        }
+    }
+
+    // ---------------------------------------------------------------- WLED
+    Component {
+        id: wledC
+        Column {
+            spacing: 10
+            Text { width: parent.width; wrapMode: Text.WordWrap; font.pixelSize: 13
+                color: dev.status === "ok" ? Theme.muted : Theme.bad
+                text: dev.status === "ok"
+                      ? "WLED über das Netzwerk · " + dev.leds + " LEDs. Läuft NeoRGB nicht, zeigt WLED nach ein paar Sekunden wieder seinen eigenen Effekt."
+                      : "Nicht erreichbar, NeoRGB versucht es alle 10 s erneut." + (dev.error ? " (" + dev.error + ")" : "") }
+            Row {
+                spacing: 10
+                TextField {
+                    id: wRename
+                    width: 220; height: 34
+                    text: dev.name; color: Theme.text; font.pixelSize: 13
+                    background: Rectangle { radius: 9; color: Theme.panel; border.color: wRename.activeFocus ? Theme.accent : Theme.line }
+                    onEditingFinished: if (text.trim() !== dev.name) backend.call("rename_wled", { key: dev.key, name: text.trim() })
+                }
+                NButton { text: "WLED-Oberfläche öffnen"; onClicked: Qt.openUrlExternally(dev.path) }
+                NButton { text: "Entfernen"; danger: true; onClicked: backend.call("remove_wled", { key: dev.key }) }
             }
         }
     }

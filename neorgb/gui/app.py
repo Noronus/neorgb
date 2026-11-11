@@ -10,14 +10,17 @@ import subprocess
 import sys
 from pathlib import Path
 
-from PySide6.QtCore import Property, QObject, QTimer, QUrl, Signal, Slot
-from PySide6.QtGui import QGuiApplication, QIcon
-from PySide6.QtNetwork import QLocalSocket
+from PySide6.QtCore import Property, QObject, QProcess, QTimer, QUrl, Signal, Slot
+from PySide6.QtGui import QAction, QIcon
+from PySide6.QtNetwork import QLocalServer, QLocalSocket
 from PySide6.QtQml import QQmlApplicationEngine
 from PySide6.QtQuickControls2 import QQuickStyle
+from PySide6.QtWidgets import QApplication, QMenu, QSystemTrayIcon
 
 RUNTIME = Path(os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}"))
 SOCKET = str(RUNTIME / "neorgb.sock")
+GUI_SOCKET = str(RUNTIME / "neorgb-gui.sock")   # second launch shows the running window
+UNIT = "neorgbd.service"
 HERE = Path(__file__).resolve().parent
 
 
@@ -91,6 +94,7 @@ class Backend(QObject):
     frameChanged = Signal()
     historyChanged = Signal()
     connectedChanged = Signal()
+    serviceModeChanged = Signal()
     toast = Signal(str)
 
     def __init__(self) -> None:
@@ -103,6 +107,8 @@ class Backend(QObject):
         self._ids = itertools.count(1)
         self._pending: dict[int, str] = {}
         self._preview = False
+        self._mode = ""          # "", "restarting" or "off" (switched off until next login/boot)
+        self._quit_then_start = False
         self._store = Store(self)
         self.sock = QLocalSocket(self)
         self.sock.readyRead.connect(self._read)
@@ -124,6 +130,7 @@ class Backend(QObject):
 
     def _on_connected(self) -> None:
         self._connected = True
+        self._set_mode("")
         self.connectedChanged.emit()
         self.t_state.start()
         self.t_hist.start()
@@ -141,6 +148,14 @@ class Backend(QObject):
         self.t_state.stop()
         self.t_frame.stop()
         self.t_hist.stop()
+        if self._quit_then_start:
+            self._quit_then_start = False
+            QTimer.singleShot(500, self.startDaemon)
+
+    def _set_mode(self, mode: str) -> None:
+        if mode != self._mode:
+            self._mode = mode
+            self.serviceModeChanged.emit()
 
     def _send(self, method: str, params: dict | None = None, tag: str = "") -> None:
         if not self._connected:
@@ -209,6 +224,10 @@ class Backend(QObject):
     def connected(self):
         return self._connected
 
+    @Property(str, notify=serviceModeChanged)
+    def serviceMode(self):
+        return self._mode
+
     @Slot(str, "QVariant")
     def call(self, method: str, params) -> None:
         if hasattr(params, "toVariant"):
@@ -223,36 +242,158 @@ class Backend(QObject):
         else:
             self.t_frame.stop()
 
+    # ------------------------------------------------------ service control
+    @staticmethod
+    def _unit_active() -> bool:
+        if not shutil.which("systemctl"):
+            return False
+        r = subprocess.run(["systemctl", "--user", "is-active", "--quiet", UNIT], capture_output=True)
+        return r.returncode == 0
+
+    def _systemctl(self, verb: str, fail: str) -> None:
+        """Run ``systemctl --user <verb> neorgbd`` without blocking the UI."""
+        p = QProcess(self)
+
+        def done(code: int, _status) -> None:
+            if code != 0:
+                err = bytes(p.readAllStandardError()).decode(errors="replace").strip()
+                self._set_mode("")
+                self.toast.emit(fail + (f": {err.splitlines()[-1]}" if err else ""))
+            p.deleteLater()
+        p.finished.connect(done)
+        p.start("systemctl", ["--user", verb, UNIT])
+
     @Slot()
     def startDaemon(self) -> None:
+        self._set_mode("restarting")
         if shutil.which("systemctl"):
-            r = subprocess.run(["systemctl", "--user", "start", "neorgbd.service"], capture_output=True, text=True)
+            r = subprocess.run(["systemctl", "--user", "start", UNIT], capture_output=True, text=True)
             if r.returncode == 0:
                 return
         # not installed as service: run it detached from this checkout
         subprocess.Popen([sys.executable, "-m", "neorgb.daemon"], cwd=str(HERE.parent.parent),
                          start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
+    @Slot()
+    def restartDaemon(self) -> None:
+        """Restart neorgbd, and with it the OpenRGB server it spawns."""
+        self._set_mode("restarting")
+        if self._unit_active():
+            self._systemctl("restart", "Neustart fehlgeschlagen")
+        elif self._connected:
+            self._quit_then_start = True
+            self._send("quit")
+        else:
+            self.startDaemon()
+
+    @Slot()
+    def stopDaemon(self) -> None:
+        """Switch neorgbd off.  It stays enabled, so it comes back on the next login."""
+        self._set_mode("off")
+        self._quit_then_start = False
+        if self._unit_active():
+            self._systemctl("stop", "Ausschalten fehlgeschlagen")
+        elif self._connected:
+            self._send("quit")
+
+
+class Tray(QObject):
+    """Tray icon: left click shows/hides the window, right click opens the menu."""
+
+    def __init__(self, app: QApplication, backend: Backend, win, icon: QIcon) -> None:
+        super().__init__(app)
+        self.app, self.backend, self.win = app, backend, win
+        self.menu = QMenu()
+        self.a_status = QAction(self.menu, enabled=False)
+        self.a_show = QAction("Fenster öffnen", self.menu, triggered=self.show_window)
+        self.a_restart = QAction("Dienst neu starten", self.menu, triggered=backend.restartDaemon)
+        self.a_power = QAction(self.menu, triggered=self.toggle_power)
+        self.a_quit = QAction("Beenden (Dienst läuft weiter)", self.menu, triggered=app.quit)
+        for a in (self.a_status, None, self.a_show, self.a_restart, self.a_power, None, self.a_quit):
+            self.menu.addSeparator() if a is None else self.menu.addAction(a)
+        self.icon = QSystemTrayIcon(icon, self)
+        self.icon.setToolTip("NeoRGB")
+        self.icon.setContextMenu(self.menu)
+        self.icon.activated.connect(self._activated)
+        backend.connectedChanged.connect(self.refresh)
+        backend.serviceModeChanged.connect(self.refresh)
+        self.refresh()
+        self.icon.show()
+
+    def refresh(self) -> None:
+        b = self.backend
+        if b.connected:
+            status, power = "Dienst läuft", "Ausschalten bis zum Neustart"
+        elif b.serviceMode == "restarting":
+            status, power = "Dienst startet …", "Ausschalten bis zum Neustart"
+        elif b.serviceMode == "off":
+            status, power = "Ausgeschaltet bis zum Neustart", "Dienst starten"
+        else:
+            status, power = "Dienst läuft nicht", "Dienst starten"
+        self.a_status.setText(status)
+        self.a_power.setText(power)
+        self.icon.setToolTip("NeoRGB · " + status)
+
+    def toggle_power(self) -> None:
+        if self.backend.connected or self.backend.serviceMode == "restarting":
+            self.backend.stopDaemon()
+        else:
+            self.backend.startDaemon()
+
+    def show_window(self) -> None:
+        self.win.show()
+        self.win.raise_()
+        self.win.requestActivate()
+
+    def _activated(self, reason) -> None:
+        if reason == QSystemTrayIcon.ActivationReason.Trigger:
+            if self.win.isVisible() and self.win.isActive():
+                self.win.hide()
+            else:
+                self.show_window()
+
+
+def _already_running() -> bool:
+    """Ask a running NeoRGB window to come to the front.  True if one answered."""
+    s = QLocalSocket()
+    s.connectToServer(GUI_SOCKET)
+    if not s.waitForConnected(300):
+        return False
+    s.write(b"show\n")
+    s.waitForBytesWritten(300)
+    s.disconnectFromServer()
+    return True
+
 
 def main() -> int:
     os.environ.setdefault("QT_QUICK_CONTROLS_STYLE", "Basic")
     QQuickStyle.setStyle("Basic")
-    app = QGuiApplication(sys.argv)
+    app = QApplication(sys.argv)
     app.setApplicationName("NeoRGB")
     app.setOrganizationName("neorgb")
     app.setDesktopFileName("neorgb")
-    icon = HERE / "icons" / "neorgb.svg"
-    if icon.exists():
-        app.setWindowIcon(QIcon(str(icon)))
+    shot = os.environ.get("NEORGB_SCREENSHOT")
+    if not shot and _already_running():
+        return 0
+    icon = QIcon(str(HERE / "icons" / "neorgb.svg"))
+    app.setWindowIcon(icon)
     backend = Backend()
     engine = QQmlApplicationEngine()
     engine.rootContext().setContextProperty("backend", backend)
     engine.load(QUrl.fromLocalFile(str(HERE / "qml" / "Main.qml")))
     if not engine.rootObjects():
         return 1
-    shot = os.environ.get("NEORGB_SCREENSHOT")
+    win = engine.rootObjects()[0]
+    tray = None
+    if not shot:
+        tray = Tray(app, backend, win, icon)
+        # closing the window keeps NeoRGB in the tray; "Beenden" in the tray menu quits
+        app.setQuitOnLastWindowClosed(not QSystemTrayIcon.isSystemTrayAvailable())
+        QLocalServer.removeServer(GUI_SOCKET)
+        server = QLocalServer(app)
+        server.newConnection.connect(lambda: (server.nextPendingConnection().deleteLater(), tray.show_window()))
+        server.listen(GUI_SOCKET)
     if shot:   # dev helper: NEORGB_SCREENSHOT=out.png NEORGB_PAGE=1
-        win = engine.rootObjects()[0]
         page = int(os.environ.get("NEORGB_PAGE", "0"))
         win.setProperty("page", page)
 
@@ -261,6 +402,7 @@ def main() -> int:
             app.quit()
         QTimer.singleShot(int(os.environ.get("NEORGB_DELAY", "2500")), grab)
     rc = app.exec()
+    del tray
     del engine   # tear QML down while backend still exists, avoids null errors on exit
     return rc
 

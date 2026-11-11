@@ -9,6 +9,7 @@ Flickable {
     readonly property var st: win.st
     contentHeight: col.implicitHeight + 56
     clip: true
+    WheelScroll { flick: page }
     ScrollBar.vertical: ScrollBar {}
 
     function pump() { var f = st.fans || []; for (var i = 0; i < f.length; i++) if (f[i].pump) return win.live(f[i].id); return null }

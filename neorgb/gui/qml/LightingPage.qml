@@ -11,6 +11,7 @@ Flickable {
     property string target: ""          // "" = global, otherwise a zone id
     contentHeight: col.implicitHeight + 56
     clip: true
+    WheelScroll { flick: page }
     ScrollBar.vertical: ScrollBar {}
 
     function zoneById(id) { var z = st.zones || []; for (var i = 0; i < z.length; i++) if (z[i].id === id) return z[i]; return null }
@@ -201,6 +202,9 @@ Flickable {
                     Text { text: "Helligkeit dieses Effekts"; color: Theme.muted; font.pixelSize: 13; visible: page.spec.effect !== "off" }
                     NSlider { visible: page.spec.effect !== "off"; Layout.fillWidth: true; from: 0; to: 100; suffix: " %"; value: page.spec.brightness === undefined ? 100 : page.spec.brightness
                         onPressedChanged: if (!pressed) page.apply({ brightness: Math.round(value) }) }
+                    Text { text: "Mindesthelligkeit"; color: Theme.muted; font.pixelSize: 13; visible: page.spec.effect !== "off" }
+                    NSlider { visible: page.spec.effect !== "off"; Layout.fillWidth: true; from: 0; to: 100; suffix: " %"; value: page.spec.min_brightness || 0
+                        onPressedChanged: if (!pressed) page.apply({ min_brightness: Math.round(value) }) }
                 }
             }
         }

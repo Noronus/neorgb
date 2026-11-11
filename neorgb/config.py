@@ -30,6 +30,7 @@ DEFAULTS = {
     },
     "devices": {},
     "openrgb": {"enabled": True, "host": "127.0.0.1", "port": 6744, "spawn": True},
+    "wled": {"devices": []},          # [{"host": "10.0.5.120", "key": "wled:<mac>", "name": "WLED"}]
 }
 
 

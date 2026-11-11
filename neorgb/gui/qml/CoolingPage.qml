@@ -13,6 +13,7 @@ Flickable {
     property string selCurve: "balanced"
     contentHeight: col.implicitHeight + 56
     clip: true
+    WheelScroll { flick: page }
     ScrollBar.vertical: ScrollBar {}
 
     function fanById(id) { var f = st.fans || []; for (var i = 0; i < f.length; i++) if (f[i].id === id) return f[i]; return null }

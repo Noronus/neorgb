@@ -20,6 +20,7 @@ import time
 from pathlib import Path
 
 from .config import CONFIG_DIR, Config
+from .devices.wled import WLEDBridge
 from .effects import EFFECTS, EffectEngine, Zone
 from .fancontrol import CRITICAL_LIQUID, DEFAULT_CURVES, FanController, interpolate
 from .hidraw import HidError, HidInfo, enumerate_hidraw
@@ -367,6 +368,7 @@ class Daemon:
         self.started = time.time()
         self.last_change = 0.0
         self.extra_sources: list = []   # OpenRGB bridge etc.
+        self.wled = WLEDBridge(self)
 
     # ------------------------------------------------------------ helpers
     def device_cfg(self, key: str) -> dict:
@@ -469,6 +471,8 @@ class Daemon:
             for z in self.all_zones():
                 spec = dict(self.zone_spec(z.id, lighting))
                 spec["brightness"] = float(spec.get("brightness", 100)) * master
+                spec["min_brightness"] = max(float(spec.get("min_brightness", 0) or 0),
+                                             float(self.device_cfg(z.device).get("min_brightness", 0) or 0))
                 until = self.identify.get(z.id)
                 if until and until > now:
                     on = int((until - now) * 4) % 2 == 0
@@ -530,6 +534,8 @@ class Daemon:
         ipc = start_ipc(self)
         if self.cfg.data["openrgb"].get("enabled"):
             self.start_openrgb()
+        self.wled.start()
+        self.extra_sources.append(self.wled)
         self.scan()
         threading.Thread(target=self.render_loop, daemon=True, name="render").start()
         last = time.monotonic()
@@ -604,6 +610,13 @@ class Daemon:
             devs.sort(key=lambda d: (rank.get(d["kind"], 5), d["name"]))
             for src in self.extra_sources:
                 devs += src.describe()
+            # excluded devices that are not listed otherwise, so they can be switched back on
+            seen = {d["key"] for d in devs}
+            for key, dc in snap["devices"].items():
+                if dc.get("disabled") and key not in seen:
+                    devs.append({"key": key, "kind": dc.get("kind", ""), "name": dc.get("name") or key,
+                                 "label": "", "firmware": "", "status": "disabled", "error": "", "path": "",
+                                 "zones": [], "fans": []})
             fans = []
             for f in self.all_fans():
                 st = self.fanctl.states.get(f["id"])
@@ -701,14 +714,20 @@ class Daemon:
             key = p["key"]
             with c.lock:
                 d = c.data["devices"].setdefault(key, {})
-                for k in ("label", "hw_effect", "disabled"):
+                for k in ("label", "hw_effect", "disabled", "name", "kind"):
                     if k in p:
                         d[k] = p[k]
                 if "channels" in p:
                     d.setdefault("channels", {}).update(p["channels"])
                 if "ports" in p:
                     d.setdefault("ports", {}).update({str(k): v for k, v in p["ports"].items()})
+                if "min_brightness" in p:
+                    d["min_brightness"] = max(0, min(100, float(p["min_brightness"])))
             self.changed()
+            if "disabled" in p:
+                for src in self.extra_sources:
+                    src._reload = True
+                    src._wake.set()
             if p.get("restart", True):
                 threading.Thread(target=self.restart_worker, args=(key,), daemon=True).start()
             return True
@@ -741,6 +760,41 @@ class Daemon:
             return True
         if method == "save":
             c.save()
+            return True
+        if method == "add_wled":
+            from .devices import wled
+            host = wled.normalize_host(str(p.get("host", "")))
+            if not host:
+                raise ValueError("Bitte eine IP-Adresse oder einen Hostnamen eintragen")
+            info = wled.probe(host)
+            key = wled.device_key(info, host)
+            with c.lock:
+                devs = c.data["wled"]["devices"]
+                if any(d.get("key") == key or d.get("host") == host for d in devs):
+                    raise ValueError(f"{host} ist schon eingetragen")
+                name = str(p.get("name") or "").strip() or info.get("name") or host
+                devs.append({"host": host, "key": key, "name": name})
+            self.changed()
+            self.wled.reload()
+            return {"key": key, "name": name, "leds": info["leds"]["count"]}
+        if method == "remove_wled":
+            with c.lock:
+                c.data["wled"]["devices"] = [d for d in c.data["wled"]["devices"] if d.get("key") != p["key"]]
+                c.data["devices"].pop(p["key"], None)
+                c.data["lighting"]["zones"].pop(p["key"] + "/z0", None)
+            self.changed()
+            self.wled.reload()
+            return True
+        if method == "rename_wled":
+            with c.lock:
+                for d in c.data["wled"]["devices"]:
+                    if d.get("key") == p["key"]:
+                        d["name"] = str(p["name"]).strip() or d["host"]
+            self.changed()
+            self.wled.reload()
+            return True
+        if method == "quit":   # used by the app when neorgbd does not run under systemd
+            self.stop_evt.set()
             return True
         raise ValueError(f"unknown method {method}")
 

@@ -99,9 +99,13 @@ ApplicationWindow {
                 Column {
                     anchors.centerIn: parent
                     spacing: 14
-                    Text { anchors.horizontalCenter: parent.horizontalCenter; text: "Der NeoRGB-Dienst läuft nicht"; color: Theme.text; font.pixelSize: 22; font.weight: Font.DemiBold }
+                    Text { anchors.horizontalCenter: parent.horizontalCenter; color: Theme.text; font.pixelSize: 22; font.weight: Font.DemiBold
+                        text: backend.serviceMode === "restarting" ? "Der NeoRGB-Dienst startet …"
+                            : backend.serviceMode === "off" ? "NeoRGB ist bis zum nächsten Neustart aus"
+                            : "Der NeoRGB-Dienst läuft nicht" }
                     Text { anchors.horizontalCenter: parent.horizontalCenter; text: "Ohne ihn steuert die AIO wieder ihre gespeicherte Hardware-Kurve."; color: Theme.muted; font.pixelSize: 14 }
-                    NButton { anchors.horizontalCenter: parent.horizontalCenter; text: "Dienst starten"; primary: true; onClicked: backend.startDaemon() }
+                    NButton { anchors.horizontalCenter: parent.horizontalCenter; text: "Dienst starten"; primary: true
+                        visible: backend.serviceMode !== "restarting"; onClicked: backend.startDaemon() }
                 }
             }
 

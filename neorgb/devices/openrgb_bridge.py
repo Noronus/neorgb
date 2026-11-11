@@ -246,7 +246,8 @@ class OpenRGBBridge(threading.Thread):
         out = []
         for c in self.ctrls:
             out.append({"key": c["key"], "kind": "openrgb", "name": c.get("label", c["name"]), "label": "",
-                        "firmware": c.get("version", ""), "status": self.status, "error": self.error,
+                        "firmware": c.get("version", ""),
+                        "status": "disabled" if c.get("disabled") else self.status, "error": self.error,
                         "path": c.get("location", ""), "zones": [z.id for z in self._zones if z.device == c["key"]],
                         "fans": [], "orgb_zones": [{"name": z["name"], "count": z["count"], "min": z["min"],
                                                     "max": z["max"], "index": i} for i, z in enumerate(c["zones"])]})
@@ -265,6 +266,17 @@ class OpenRGBBridge(threading.Thread):
             raise RuntimeError("openrgb ist nicht installiert")
         cdir = CONFIG_DIR / "openrgb"
         write_private_config(cdir)
+        # Started under its own name: CachyOS' ananicy-cpp puts every process
+        # called "openrgb" into the background class (nice 16).  Under load the
+        # device threads then starve and keyboard effects stutter and lag.
+        link = cdir / "neorgb-openrgb"
+        try:
+            if not link.is_symlink() or os.readlink(link) != exe:
+                link.unlink(missing_ok=True)
+                link.symlink_to(exe)
+            exe = str(link)
+        except OSError:
+            pass
         logf = open(cdir / "server.log", "w")
         self.proc = subprocess.Popen(
             [exe, "--server", "--server-port", str(self.port), "--noautoconnect", "--config", str(cdir)],
@@ -311,6 +323,10 @@ class OpenRGBBridge(threading.Thread):
             c["label"] = c["name"] if names[c["name"]] == 1 else f"{c['name']} #{names[c['name']]}"
         zones = []
         for c in ctrls:
+            c["disabled"] = bool(self.d.device_cfg(c["key"]).get("disabled"))
+            c["direct"] = False
+            if c["disabled"]:   # excluded by the user: never switch it to direct mode
+                continue
             direct = next((i for i, m in enumerate(c["modes"]) if m["name"].lower() in ("direct", "custom")), None)
             c["direct"] = direct is not None
             if direct is not None:

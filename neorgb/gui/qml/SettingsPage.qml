@@ -10,6 +10,7 @@ Flickable {
     readonly property var orgb: ((st.config || {}).openrgb) || ({})
     contentHeight: col.implicitHeight + 56
     clip: true
+    WheelScroll { flick: page }
 
     ColumnLayout {
         id: col
@@ -49,6 +50,13 @@ Flickable {
             Column {
                 width: parent.width; spacing: 8
                 Text { text: "Läuft seit " + Math.round((st.uptime || 0) / 60) + " min"; color: Theme.muted; font.pixelSize: 13 }
+                Row {
+                    spacing: 10
+                    NButton { text: "Dienst neu starten"; onClicked: backend.restartDaemon() }
+                    NButton { text: "Ausschalten bis zum Neustart"; danger: true; onClicked: backend.stopDaemon() }
+                }
+                Text { text: "Neu starten lädt auch den OpenRGB-Server neu. Ausgeschaltet regelt die AIO nach ihrer gespeicherten Kurve, bis zum nächsten Login."
+                    color: Theme.faint; font.pixelSize: 12; width: parent.width; wrapMode: Text.WordWrap }
                 Text { text: "Autostart: systemctl --user enable --now neorgbd"; color: Theme.text; font.family: "monospace"; font.pixelSize: 13 }
                 Text { text: "Konfiguration: ~/.config/neorgb/config.json"; color: Theme.text; font.family: "monospace"; font.pixelSize: 13 }
             }

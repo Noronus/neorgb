@@ -15,6 +15,7 @@ und einer Oberfläche.
   nach Wassertemperatur. Die Pumpe fällt nie unter 50 %. Ab 50 °C Wasser gehen
   alle Kanäle auf 100 %. Fällt der Sensor einer Kurve aus, laufen nur deren
   Kanäle auf einer einstellbaren Leistung (Standard 100 %).
+- **WLED** über das Netzwerk, per IP-Adresse eingetragen
 - **Alles andere** (ASUS Aura, RAM, Tastatur, Maus) über einen privaten
   OpenRGB-Server, den NeoRGB selbst startet. In dessen Konfiguration sind die
   Corsair-Hubs abgeschaltet, damit nie zwei Programme gleichzeitig auf dasselbe
@@ -63,6 +64,15 @@ die Oberfläche einmal. Das Ergebnis liegt in `dist/`.
 |---|---|
 | ![Kühlung](docs/screenshots/kuehlung.png) **Kühlung**: Kurven pro Lüfter und Pumpe, Punkte ziehen | ![Beleuchtung](docs/screenshots/beleuchtung.png) **Beleuchtung**: ein Effekt für alles oder pro Zone |
 | ![Geräte](docs/screenshots/geraete.png) **Geräte**: was an den Lighting Nodes hängt, LEDs zählen | ![Einstellungen](docs/screenshots/einstellungen.png) **Einstellungen** |
+
+## WLED
+
+Unter **Geräte** → „WLED-Gerät hinzufügen“ die IP-Adresse eintragen (z. B.
+`10.0.5.120`). NeoRGB fragt die LED-Anzahl beim Controller ab und schickt die
+Effekte per DDP (UDP-Port 4048). Der Streifen erscheint danach unter
+**Beleuchtung** als eigene Zone. Ist der WLED aus, schaltet NeoRGB ihn beim
+Verbinden ein. Läuft NeoRGB nicht, zeigt WLED nach ein paar Sekunden wieder
+seinen eigenen Effekt.
 
 ## Lighting Nodes einrichten
 
