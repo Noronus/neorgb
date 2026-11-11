@@ -83,7 +83,7 @@ Popup {
                 background: Rectangle { radius: 8; color: Theme.panel; border.color: hex.activeFocus ? Theme.accent : Theme.line }
                 onEditingFinished: if (text.length === 6) { var c = Qt.color("#" + text); pop.hue = c.hsvHue < 0 ? 0 : c.hsvHue; pop.sat = c.hsvSaturation; pop.val = c.hsvValue; pop.emitColor() }
             }
-            NButton { text: "Fertig"; primary: true; onClicked: pop.close() }
+            NButton { text: qsTr("Fertig"); primary: true; onClicked: pop.close() }
         }
     }
 }

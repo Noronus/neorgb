@@ -63,6 +63,7 @@ install -Dm644 packaging/neorgb-modules.conf %{buildroot}%{_modulesloaddir}/neor
 %changelog
 * Wed Nov 11 2026 Noronus <74186111+Noronus@users.noreply.github.com> - 0.2.0-1
 - Mainboard and AMD GPU fans, screen lighting effect, tray icon, WLED
+- English user interface; the language is asked on first start
 
 * Sun Nov 08 2026 Noronus <74186111+Noronus@users.noreply.github.com> - 0.1.0-1
 - First release

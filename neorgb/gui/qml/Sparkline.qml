@@ -9,6 +9,7 @@ Canvas {
     onSeriesChanged: requestPaint()
     onWidthChanged: requestPaint()
     onHeightChanged: requestPaint()
+    Connections { target: backend; function onLanguageChanged() { cv.requestPaint() } }
     onPaint: {
         var c = getContext("2d"); c.reset()
         var lo = 1e9, hi = -1e9, now = Date.now() / 1000
@@ -27,7 +28,8 @@ Canvas {
             c.fillText(g + "°", 4, gy + 4)
         }
         c.fillText("-" + Math.round(span / 60) + " min", padL, height - 3)
-        c.fillText("jetzt", padL + w - 26, height - 3)
+        var nowTxt = qsTr("jetzt")
+        c.fillText(nowTxt, padL + w - c.measureText(nowTxt).width, height - 3)
         for (s = 0; s < series.length; s++) {
             d = series[s].data || []
             if (d.length < 2) continue

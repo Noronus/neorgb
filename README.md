@@ -21,6 +21,9 @@ und einer Oberfläche.
   OpenRGB-Server, den NeoRGB selbst startet. In dessen Konfiguration sind die
   Corsair-Hubs abgeschaltet, damit nie zwei Programme gleichzeitig auf dasselbe
   Gerät zugreifen.
+- **Deutsch und Englisch:** Beim ersten Start fragt die Oberfläche nach der
+  Sprache, umstellen geht unter **Einstellungen**. *The app also speaks
+  English: pick it on first start or under Settings.*
 
 ## Installieren
 

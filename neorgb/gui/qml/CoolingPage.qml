@@ -18,7 +18,7 @@ Flickable {
 
     function fanById(id) { var f = st.fans || []; for (var i = 0; i < f.length; i++) if (f[i].id === id) return f[i]; return null }
     function curveIds() { return Object.keys(curves) }
-    function curveName(id) { return curves[id] ? curves[id].name : id }
+    function curveName(id) { return curves[id] ? qsTr(curves[id].name) : id }
     // The GPU runs its curve itself and only knows its own temperature.
     function gpuCurve(id) { var s = curves[id] ? curves[id].sensor || "" : ""; return s === "gpu" || s.indexOf("hwmon:amdgpu") === 0 }
     function fanCurveIds(fan) {
@@ -57,8 +57,8 @@ Flickable {
         spacing: Theme.gap
 
         Column {
-            Text { text: "Kühlung"; color: Theme.text; font.pixelSize: 26; font.weight: Font.Bold }
-            Text { text: "Lüfter, Pumpe, Mainboard- und GPU-Lüfter folgen einer Kurve, laufen fest oder bleiben bei BIOS/GPU. Ziehe Punkte, Doppelklick fügt hinzu, Rechtsklick entfernt."; color: Theme.muted; font.pixelSize: 13; wrapMode: Text.WordWrap; width: col.width }
+            Text { text: qsTr("Kühlung"); color: Theme.text; font.pixelSize: 26; font.weight: Font.Bold }
+            Text { text: qsTr("Lüfter, Pumpe, Mainboard- und GPU-Lüfter folgen einer Kurve, laufen fest oder bleiben bei BIOS/GPU. Ziehe Punkte, Doppelklick fügt hinzu, Rechtsklick entfernt."); color: Theme.muted; font.pixelSize: 13; wrapMode: Text.WordWrap; width: col.width }
         }
 
         // ---------------------------------------------------- channel cards
@@ -83,34 +83,34 @@ Flickable {
                         x: 16; y: 14; width: parent.width - 32; spacing: 8
                         Row {
                             width: parent.width
-                            Text { text: modelData.cfg.label || modelData.name; color: Theme.text; font.pixelSize: 15; font.weight: Font.DemiBold; width: parent.width - fsb.width; elide: Text.ElideRight }
-                            Text { id: fsb; text: fc.lv.failsafe ? "FAILSAFE" + (fc.lv.why ? ": " + fc.lv.why : "") : ""
+                            Text { text: modelData.cfg.label || qsTr(modelData.name); color: Theme.text; font.pixelSize: 15; font.weight: Font.DemiBold; width: parent.width - fsb.width; elide: Text.ElideRight }
+                            Text { id: fsb; text: fc.lv.failsafe ? "FAILSAFE" + (fc.lv.why ? ": " + qsTr(fc.lv.why) : "") : ""
                                 color: Theme.bad; font.pixelSize: 11; font.weight: Font.Bold; width: Math.min(implicitWidth, parent.width * 0.7)
                                 elide: Text.ElideRight; horizontalAlignment: Text.AlignRight; anchors.verticalCenter: parent.verticalCenter }
                         }
                         Row {
                             spacing: 6
                             Text { text: fc.lv.rpm === undefined ? "–" : fc.lv.rpm; color: Theme.text; font.pixelSize: 26; font.weight: Font.DemiBold }
-                            Text { text: "rpm"; color: Theme.muted; font.pixelSize: 13; anchors.baseline: parent.children[0].baseline }
+                            Text { text: qsTr("rpm"); color: Theme.muted; font.pixelSize: 13; anchors.baseline: parent.children[0].baseline }
                             Item { width: 10; height: 1 }
                             Text { text: fc.lv.duty == null ? "" : Math.round(fc.lv.duty) + " %"; color: modelData.pump ? Theme.good : Theme.accent; font.pixelSize: 15; font.weight: Font.DemiBold; anchors.baseline: parent.children[0].baseline }
                         }
                         Text { visible: modelData.managed === false; width: parent.width; wrapMode: Text.WordWrap
-                            text: "Regelt sich selbst (Lüftersteuerung für dieses Gerät aus, siehe Geräte)"; color: Theme.faint; font.pixelSize: 12 }
+                            text: qsTr("Regelt sich selbst (Lüftersteuerung für dieses Gerät aus, siehe Geräte)"); color: Theme.faint; font.pixelSize: 12 }
                         Text { visible: modelData.writable === false && modelData.managed !== false; width: parent.width; wrapMode: Text.WordWrap
-                            text: modelData.hint || "Nur Anzeige: keine Schreibrechte (siehe Geräte)"; color: Theme.faint; font.pixelSize: 12 }
+                            text: modelData.hint ? qsTr(modelData.hint) : qsTr("Nur Anzeige: keine Schreibrechte (siehe Geräte)"); color: Theme.faint; font.pixelSize: 12 }
                         Row {
                             spacing: 6
                             visible: modelData.writable !== false && modelData.managed !== false
                             Chip { visible: !!modelData.hw_name; text: modelData.hw_name || ""; selected: modelData.cfg.mode === "hardware"; height: 26
                                 onClicked: backend.call("set_fan", { fan: modelData.id, mode: "hardware" }) }
-                            Chip { text: "Kurve"; selected: modelData.cfg.mode === "curve"; height: 26
+                            Chip { text: qsTr("Kurve"); selected: modelData.cfg.mode === "curve"; height: 26
                                 onClicked: { backend.call("set_fan", { fan: modelData.id, mode: "curve", curve: page.defaultCurve(modelData) }); page.selFan = modelData.id } }
-                            Chip { text: "Fest"; selected: modelData.cfg.mode === "fixed"; height: 26
+                            Chip { text: qsTr("Fest"); selected: modelData.cfg.mode === "fixed"; height: 26
                                 onClicked: { backend.call("set_fan", { fan: modelData.id, mode: "fixed", fixed: Math.round(fc.lv.duty || 50) }); page.selFan = modelData.id } }
                         }
                         Text { visible: !!modelData.mode_note && modelData.writable !== false && modelData.managed !== false; width: parent.width; wrapMode: Text.WordWrap
-                            text: modelData.mode_note || ""; color: Theme.warn; font.pixelSize: 11 }
+                            text: qsTr(modelData.mode_note || ""); color: Theme.warn; font.pixelSize: 11 }
                         Loader {
                             width: parent.width
                             visible: modelData.writable !== false && modelData.managed !== false
@@ -122,7 +122,7 @@ Flickable {
             }
             Component {
                 id: hwC
-                Text { text: fan.source === "gpu" ? "Die Grafikkarte regelt selbst" : "Das Mainboard regelt nach BIOS-Einstellung"
+                Text { text: fan.source === "gpu" ? qsTr("Die Grafikkarte regelt selbst") : qsTr("Das Mainboard regelt nach BIOS-Einstellung")
                     color: Theme.muted; font.pixelSize: 12; wrapMode: Text.WordWrap; height: 34; verticalAlignment: Text.AlignVCenter }
             }
             Component {
@@ -148,17 +148,17 @@ Flickable {
         // -------------------------------------------------------- curve editor
         Card {
             Layout.fillWidth: true
-            title: "Kurve: " + (page.curCurve.name || page.selCurve)
+            title: qsTr("Kurve: %1").arg(page.curCurve.name ? qsTr(page.curCurve.name) : page.selCurve)
             subtitle: {
-                var users = (st.fans || []).filter(function (f) { return f.cfg.mode === "curve" && f.cfg.curve === page.selCurve }).map(function (f) { return f.cfg.label || f.name })
-                return users.length ? "verwendet von " + users.join(", ") : "von keinem Kanal verwendet"
+                var users = (st.fans || []).filter(function (f) { return f.cfg.mode === "curve" && f.cfg.curve === page.selCurve }).map(function (f) { return f.cfg.label || qsTr(f.name) })
+                return users.length ? qsTr("verwendet von %1").arg(users.join(", ")) : qsTr("von keinem Kanal verwendet")
             }
             header: [
-                NButton { text: "Neue Kurve"; onClicked: {
+                NButton { text: qsTr("Neue Kurve"); onClicked: {
                     var id = page.newCurveId()
-                    backend.call("set_curve", { id: id, curve: { name: "Eigene " + id.substring(6), sensor: page.curCurve.sensor || "liquid", average: 0, points: page.curCurve.points } })
+                    backend.call("set_curve", { id: id, curve: { name: qsTr("Eigene %1").arg(id.substring(6)), sensor: page.curCurve.sensor || "liquid", average: 0, points: page.curCurve.points } })
                     page.selCurve = id } },
-                NButton { text: "Löschen"; danger: true; enabled: page.curveIds().length > 1; onClicked: backend.call("delete_curve", { id: page.selCurve }) }
+                NButton { text: qsTr("Löschen"); danger: true; enabled: page.curveIds().length > 1; onClicked: backend.call("delete_curve", { id: page.selCurve }) }
             ]
             Column {
                 width: parent.width
@@ -175,10 +175,10 @@ Flickable {
                     spacing: 20
                     Column {
                         spacing: 6
-                        SectionLabel { text: "Sensor" }
+                        SectionLabel { text: qsTr("Sensor") }
                         NCombo {
                             width: 230
-                            model: (st.sensors || []).map(function (s) { return { id: s.id, name: s.label + (s.value !== null ? "  (" + Theme.fmt(s.value) + " °C)" : "") } })
+                            model: (st.sensors || []).map(function (s) { return { id: s.id, name: qsTr(s.label) + (s.value !== null ? "  (" + Theme.fmt(s.value) + " °C)" : "") } })
                             textRole: "name"
                             currentIndex: (st.sensors || []).map(function (s) { return s.id }).indexOf(page.curCurve.sensor)
                             onActivated: function (i) { page.saveCurve({ sensor: st.sensors[i].id }) }
@@ -186,10 +186,10 @@ Flickable {
                     }
                     Column {
                         spacing: 6
-                        SectionLabel { text: "Glätten" }
+                        SectionLabel { text: qsTr("Glätten") }
                         NCombo {
                             width: 150
-                            model: [{ v: 0, name: "aus" }, { v: 4, name: "4 Sekunden" }, { v: 8, name: "8 Sekunden" }, { v: 15, name: "15 Sekunden" }, { v: 30, name: "30 Sekunden" }]
+                            model: [{ v: 0, name: qsTr("aus") }, { v: 4, name: qsTr("4 Sekunden") }, { v: 8, name: qsTr("8 Sekunden") }, { v: 15, name: qsTr("15 Sekunden") }, { v: 30, name: qsTr("30 Sekunden") }]
                             textRole: "name"
                             currentIndex: [0, 4, 8, 15, 30].indexOf(Number(page.curCurve.average || 0))
                             onActivated: function (i) { page.saveCurve({ average: [0, 4, 8, 15, 30][i] }) }
@@ -197,23 +197,23 @@ Flickable {
                     }
                     Column {
                         spacing: 6
-                        SectionLabel { text: "Name" }
+                        SectionLabel { text: qsTr("Name") }
                         TextField {
                             id: nameField
                             width: 200; height: 34
-                            text: page.curCurve.name || ""
+                            text: qsTr(page.curCurve.name || "")
                             color: Theme.text; font.pixelSize: 13
                             background: Rectangle { radius: 9; color: Theme.panel; border.color: nameField.activeFocus ? Theme.accent : Theme.line }
-                            onEditingFinished: if (text !== page.curCurve.name) page.saveCurve({ name: text })
+                            onEditingFinished: if (text !== qsTr(page.curCurve.name || "")) page.saveCurve({ name: text })
                         }
                     }
                     Item { Layout.fillWidth: true }
                     Column {
                         spacing: 4
-                        SectionLabel { text: "Aktuell" }
+                        SectionLabel { text: qsTr("Aktuell") }
                         Text {
                             property var t: win.sensor(page.curCurve.sensor)
-                            text: (t === null ? "–" : Theme.fmt(t) + " °C") + "  ·  " + win.sensorLabel(page.curCurve.sensor)
+                            text: (t === null ? "–" : Theme.fmt(t) + " °C") + "  ·  " + qsTr(win.sensorLabel(page.curCurve.sensor))
                             color: Theme.warn; font.pixelSize: 15; font.weight: Font.DemiBold
                         }
                     }
@@ -234,37 +234,37 @@ Flickable {
         // ---------------------------------------------------------- advanced
         Card {
             Layout.fillWidth: true
-            title: "Verhalten"
-            subtitle: "Gilt für alle Kurven"
+            title: qsTr("Verhalten")
+            subtitle: qsTr("Gilt für alle Kurven")
             GridLayout {
                 width: parent.width
                 columns: 2; columnSpacing: 24; rowSpacing: 12
-                Text { text: "Hysterese (erst bei so viel Grad weniger langsamer werden)"; color: Theme.muted; font.pixelSize: 13; Layout.fillWidth: true }
+                Text { text: qsTr("Hysterese (erst bei so viel Grad weniger langsamer werden)"); color: Theme.muted; font.pixelSize: 13; Layout.fillWidth: true }
                 NSlider { Layout.preferredWidth: 300; from: 0; to: 5; stepSize: 0.5; decimals: 1; suffix: " °C"; value: (page.cooling.settings || {}).hysteresis || 0
                     onPressedChanged: if (!pressed) backend.call("set_cooling", { hysteresis: value }) }
-                Text { text: "Hochregeln höchstens (pro Sekunde)"; color: Theme.muted; font.pixelSize: 13 }
+                Text { text: qsTr("Hochregeln höchstens (pro Sekunde)"); color: Theme.muted; font.pixelSize: 13 }
                 NSlider { Layout.preferredWidth: 300; from: 1; to: 30; stepSize: 1; suffix: " %"; value: (page.cooling.settings || {}).ramp_up || 8
                     onPressedChanged: if (!pressed) backend.call("set_cooling", { ramp_up: value }) }
-                Text { text: "Runterregeln höchstens (pro Sekunde)"; color: Theme.muted; font.pixelSize: 13 }
+                Text { text: qsTr("Runterregeln höchstens (pro Sekunde)"); color: Theme.muted; font.pixelSize: 13 }
                 NSlider { Layout.preferredWidth: 300; from: 0.5; to: 20; stepSize: 0.5; decimals: 1; suffix: " %"; value: (page.cooling.settings || {}).ramp_down || 3
                     onPressedChanged: if (!pressed) backend.call("set_cooling", { ramp_down: value }) }
                 Column {
                     Layout.fillWidth: true; spacing: 2
-                    Text { text: "Leistung, wenn der Sensor einer Kurve ausfällt"; color: Theme.muted; font.pixelSize: 13 }
-                    Text { text: "Gilt nur für Kanäle, deren eigener Sensor fehlt. Die Pumpe läuft nie unter 50 %. Ab 50 °C Wasser gehen immer alle auf 100 %."
+                    Text { text: qsTr("Leistung, wenn der Sensor einer Kurve ausfällt"); color: Theme.muted; font.pixelSize: 13 }
+                    Text { text: qsTr("Gilt nur für Kanäle, deren eigener Sensor fehlt. Die Pumpe läuft nie unter 50 %. Ab 50 °C Wasser gehen immer alle auf 100 %.")
                         color: Theme.faint; font.pixelSize: 12; wrapMode: Text.WordWrap; width: parent.width }
                 }
                 NSlider { Layout.preferredWidth: 300; from: 30; to: 100; stepSize: 5; suffix: " %"
                     value: (page.cooling.settings || {}).failsafe_duty !== undefined ? page.cooling.settings.failsafe_duty : 100
                     onPressedChanged: if (!pressed) backend.call("set_cooling", { failsafe_duty: value }) }
-                Text { text: "Sensor gilt als ausgefallen nach"; color: Theme.muted; font.pixelSize: 13 }
+                Text { text: qsTr("Sensor gilt als ausgefallen nach"); color: Theme.muted; font.pixelSize: 13 }
                 NSlider { Layout.preferredWidth: 300; from: 3; to: 60; stepSize: 1; suffix: " s"
                     value: (page.cooling.settings || {}).sensor_timeout || 6
                     onPressedChanged: if (!pressed) backend.call("set_cooling", { sensor_timeout: value }) }
                 Column {
                     Layout.fillWidth: true; spacing: 2
-                    Text { text: "Kurven in der AIO speichern"; color: Theme.text; font.pixelSize: 13 }
-                    Text { text: "Läuft NeoRGB nicht (Boot, Absturz), regelt die AIO selbst nach Wassertemperatur. Kurven mit anderem Sensor werden dort durch „Ausgewogen“ ersetzt."
+                    Text { text: qsTr("Kurven in der AIO speichern"); color: Theme.text; font.pixelSize: 13 }
+                    Text { text: qsTr("Läuft NeoRGB nicht (Boot, Absturz), regelt die AIO selbst nach Wassertemperatur. Kurven mit anderem Sensor werden dort durch „Ausgewogen“ ersetzt.")
                         color: Theme.faint; font.pixelSize: 12; wrapMode: Text.WordWrap; width: parent.width }
                 }
                 NSwitch { checked: page.cooling.hw_fallback !== false; onToggled: backend.call("set_cooling", { hw_fallback: checked }) }

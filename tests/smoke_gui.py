@@ -9,6 +9,7 @@ import os
 import sys
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+os.environ.setdefault("NEORGB_LANG", "de")   # skips the language picker and never saves a choice
 
 from PySide6.QtCore import QTimer, QUrl, QtMsgType, qInstallMessageHandler  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
@@ -31,6 +32,7 @@ app = QApplication(sys.argv)
 backend = A.Backend()
 engine = QQmlApplicationEngine()
 engine.rootContext().setContextProperty("backend", backend)
+backend.languageChanged.connect(engine.retranslate)
 engine.load(QUrl.fromLocalFile(str(A.HERE / "qml" / "Main.qml")))
 roots = engine.rootObjects()
 if roots:
@@ -43,17 +45,21 @@ if roots:
             win.setProperty("page", next(pages))
             QTimer.singleShot(300, next_page)
         except StopIteration:
-            app.quit()
+            backend.setLanguage("en")      # switch while running: every page re-renders in English
+            QTimer.singleShot(300, app.quit)
 
     QTimer.singleShot(500, next_page)
     app.exec()
+english = engine.evaluate('qsTr("Kühlung")').toString() if roots else ""
 del engine
 
 qml = [p for p in problems if "qml" in p.lower() or "module" in p.lower()]
+if english != "Cooling":
+    qml.append(f"Sprachwechsel greift nicht: {english!r}")
 print("geladen aus", A.HERE)
 for p in qml:
     print("QML:", p)
 if not roots or qml:
     print("FEHLER: Oberfläche lädt nicht sauber")
     sys.exit(1)
-print("OK: alle 5 Seiten geladen")
+print("OK: alle 5 Seiten geladen, Wechsel auf Englisch geht")

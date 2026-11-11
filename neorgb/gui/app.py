@@ -10,12 +10,14 @@ import subprocess
 import sys
 from pathlib import Path
 
-from PySide6.QtCore import Property, QObject, QProcess, QTimer, QUrl, Signal, Slot
+from PySide6.QtCore import Property, QLocale, QObject, QProcess, QSettings, QTimer, QTranslator, QUrl, Signal, Slot
 from PySide6.QtGui import QAction, QIcon
 from PySide6.QtNetwork import QLocalServer, QLocalSocket
 from PySide6.QtQml import QQmlApplicationEngine
 from PySide6.QtQuickControls2 import QQuickStyle
 from PySide6.QtWidgets import QApplication, QMenu, QSystemTrayIcon
+
+from .. import i18n
 
 RUNTIME = Path(os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}"))
 SOCKET = str(RUNTIME / "neorgb.sock")
@@ -25,6 +27,30 @@ HERE = Path(__file__).resolve().parent
 
 
 LIVE_FAN_FIELDS = ("rpm", "duty", "target", "temp", "failsafe", "why")
+
+
+def _version() -> str:
+    try:
+        from importlib.metadata import version
+        return version("neorgb")
+    except Exception:   # running from a checkout that was never installed
+        import re
+        m = re.search(r'^version = "(.+)"', (HERE.parent.parent / "pyproject.toml").read_text(), re.M)
+        return m.group(1) if m else "?"
+
+
+class Translator(QTranslator):
+    """Feeds qsTr() (and texts from the daemon) through neorgb.i18n."""
+
+    def __init__(self, lang: str, parent: QObject | None = None) -> None:
+        super().__init__(parent)
+        self.lang = lang
+
+    def translate(self, context, source, disambiguation=None, n=-1):  # noqa: ARG002
+        return i18n.translate(source, self.lang)
+
+    def isEmpty(self) -> bool:
+        return False
 
 
 def _key_prop(key: str, sig: Signal) -> Property:
@@ -95,6 +121,7 @@ class Backend(QObject):
     historyChanged = Signal()
     connectedChanged = Signal()
     serviceModeChanged = Signal()
+    languageChanged = Signal()
     toast = Signal(str)
 
     def __init__(self) -> None:
@@ -110,6 +137,18 @@ class Backend(QObject):
         self._mode = ""          # "", "restarting" or "off" (switched off until next login/boot)
         self._quit_then_start = False
         self._store = Store(self)
+        # language: NEORGB_LANG (screenshots, tests) > saved choice > ask on first start
+        self._settings = QSettings("neorgb", "NeoRGB")
+        forced = os.environ.get("NEORGB_LANG", "")
+        saved = str(self._settings.value("language", "") or "")
+        self._fixed_lang = forced in i18n.LANGUAGES
+        lang = forced if self._fixed_lang else saved
+        self._lang_chosen = lang in i18n.LANGUAGES
+        if not self._lang_chosen:   # what the picker shows behind it until the user picks
+            lang = "de" if QLocale.system().language() == QLocale.Language.German else "en"
+        self._lang = lang
+        self.translator = Translator(lang, self)
+        QApplication.instance().installTranslator(self.translator)
         self.sock = QLocalSocket(self)
         self.sock.readyRead.connect(self._read)
         self.sock.connected.connect(self._on_connected)
@@ -175,7 +214,7 @@ class Backend(QObject):
                 continue
             tag = self._pending.pop(res.get("id"), "")
             if "error" in res:
-                self.toast.emit(str(res["error"]))
+                self.toast.emit(self.t(str(res["error"])))
                 continue
             r = res.get("result")
             if tag == "state":
@@ -245,7 +284,40 @@ class Backend(QObject):
     @Slot(str)
     def copyText(self, text: str) -> None:
         QApplication.clipboard().setText(text)
-        self.toast.emit("Kopiert")
+        self.toast.emit(self.t("Kopiert"))
+
+    # ------------------------------------------------------------- language
+    def t(self, text: str) -> str:
+        return i18n.translate(text, self._lang)
+
+    @Property(str, notify=languageChanged)
+    def language(self):
+        return self._lang
+
+    @Property(bool, notify=languageChanged)
+    def languageChosen(self):
+        return self._lang_chosen
+
+    @Property("QVariant", constant=True)
+    def languages(self):
+        return [{"id": k, "name": v} for k, v in i18n.LANGUAGES.items()]
+
+    @Property(str, constant=True)
+    def version(self):
+        return _version()
+
+    @Slot(str)
+    def setLanguage(self, lang: str) -> None:
+        if lang not in i18n.LANGUAGES:
+            return
+        if not self._fixed_lang:
+            self._settings.setValue("language", lang)
+            self._settings.sync()
+        changed = lang != self._lang or not self._lang_chosen
+        self._lang = self.translator.lang = lang
+        self._lang_chosen = True
+        if changed:
+            self.languageChanged.emit()
 
     # ------------------------------------------------------ service control
     @staticmethod
@@ -284,7 +356,7 @@ class Backend(QObject):
         """Restart neorgbd, and with it the OpenRGB server it spawns."""
         self._set_mode("restarting")
         if self._unit_active():
-            self._systemctl("restart", "Neustart fehlgeschlagen")
+            self._systemctl("restart", self.t("Neustart fehlgeschlagen"))
         elif self._connected:
             self._quit_then_start = True
             self._send("quit")
@@ -297,7 +369,7 @@ class Backend(QObject):
         self._set_mode("off")
         self._quit_then_start = False
         if self._unit_active():
-            self._systemctl("stop", "Ausschalten fehlgeschlagen")
+            self._systemctl("stop", self.t("Ausschalten fehlgeschlagen"))
         elif self._connected:
             self._send("quit")
 
@@ -310,10 +382,10 @@ class Tray(QObject):
         self.app, self.backend, self.win = app, backend, win
         self.menu = QMenu()
         self.a_status = QAction(self.menu, enabled=False)
-        self.a_show = QAction("Fenster öffnen", self.menu, triggered=self.show_window)
-        self.a_restart = QAction("Dienst neu starten", self.menu, triggered=backend.restartDaemon)
+        self.a_show = QAction(self.menu, triggered=self.show_window)
+        self.a_restart = QAction(self.menu, triggered=backend.restartDaemon)
         self.a_power = QAction(self.menu, triggered=self.toggle_power)
-        self.a_quit = QAction("Beenden (Dienst läuft weiter)", self.menu, triggered=app.quit)
+        self.a_quit = QAction(self.menu, triggered=app.quit)
         for a in (self.a_status, None, self.a_show, self.a_restart, self.a_power, None, self.a_quit):
             self.menu.addSeparator() if a is None else self.menu.addAction(a)
         self.icon = QSystemTrayIcon(icon, self)
@@ -322,11 +394,16 @@ class Tray(QObject):
         self.icon.activated.connect(self._activated)
         backend.connectedChanged.connect(self.refresh)
         backend.serviceModeChanged.connect(self.refresh)
+        backend.languageChanged.connect(self.refresh)
         self.refresh()
         self.icon.show()
 
     def refresh(self) -> None:
         b = self.backend
+        t = b.t
+        self.a_show.setText(t("Fenster öffnen"))
+        self.a_restart.setText(t("Dienst neu starten"))
+        self.a_quit.setText(t("Beenden (Dienst läuft weiter)"))
         if b.connected:
             status, power = "Dienst läuft", "Ausschalten bis zum Neustart"
         elif b.serviceMode == "restarting":
@@ -335,9 +412,9 @@ class Tray(QObject):
             status, power = "Ausgeschaltet bis zum Neustart", "Dienst starten"
         else:
             status, power = "Dienst läuft nicht", "Dienst starten"
-        self.a_status.setText(status)
-        self.a_power.setText(power)
-        self.icon.setToolTip("NeoRGB · " + status)
+        self.a_status.setText(t(status))
+        self.a_power.setText(t(power))
+        self.icon.setToolTip("NeoRGB · " + t(status))
 
     def toggle_power(self) -> None:
         if self.backend.connected or self.backend.serviceMode == "restarting":
@@ -385,6 +462,7 @@ def main() -> int:
     backend = Backend()
     engine = QQmlApplicationEngine()
     engine.rootContext().setContextProperty("backend", backend)
+    backend.languageChanged.connect(engine.retranslate)
     engine.load(QUrl.fromLocalFile(str(HERE / "qml" / "Main.qml")))
     if not engine.rootObjects():
         return 1

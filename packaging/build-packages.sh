@@ -36,7 +36,7 @@ arch)
         su b -c "git config --global --add safe.directory \"*\" && cd ~/pkg && makepkg -f --noconfirm"
         cp /home/b/pkg/neorgb-$VER-*-any.pkg.tar.zst /out/
         pacman -U --noconfirm /home/b/pkg/neorgb-$VER-*-any.pkg.tar.zst >/dev/null
-        cd / && neorgbctl --help >/dev/null && python3 /src/tests/smoke_gui.py'
+        cd / && neorgbctl --help >/dev/null && getent group neorgb >/dev/null && python3 /src/tests/smoke_gui.py'
     ;;
 debian)
     echo "== Debian"
@@ -50,7 +50,7 @@ debian)
         dpkg-buildpackage -us -uc -b
         cp ../neorgb_$VER-*_all.deb /out/
         apt-get install -y -qq ../neorgb_$VER-*_all.deb >/dev/null
-        cd / && neorgbctl --help >/dev/null && python3 /src/tests/smoke_gui.py'
+        cd / && neorgbctl --help >/dev/null && getent group neorgb >/dev/null && python3 /src/tests/smoke_gui.py'
     ;;
 fedora)
     echo "== Fedora"
@@ -62,7 +62,7 @@ fedora)
         rpmbuild -bb /src/packaging/fedora/neorgb.spec
         cp ~/rpmbuild/RPMS/noarch/neorgb-$VER-*.noarch.rpm /out/
         dnf -y -q install ~/rpmbuild/RPMS/noarch/neorgb-$VER-*.noarch.rpm >/dev/null
-        cd / && neorgbctl --help >/dev/null && python3 /src/tests/smoke_gui.py'
+        cd / && neorgbctl --help >/dev/null && getent group neorgb >/dev/null && python3 /src/tests/smoke_gui.py'
     ;;
 *) echo "unbekannt: $d" >&2; exit 2 ;;
 esac

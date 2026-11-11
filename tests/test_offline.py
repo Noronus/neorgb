@@ -1,5 +1,5 @@
 """Offline checks: packet layout and control logic without hardware."""
-import sys, unittest
+import pathlib, re, sys, unittest
 sys.path.insert(0, __file__.rsplit('/tests/', 1)[0])
 
 from neorgb.devices import lighting_node as ln
@@ -334,6 +334,53 @@ class HwmonFanTest(unittest.TestCase):
         g.apply(None)
         self.assertIsNone(g.zero_rpm_orig)
 
+
+
+class I18nTest(unittest.TestCase):
+    QML = pathlib.Path(__file__).resolve().parent.parent / "neorgb" / "gui" / "qml"
+    LIT = re.compile(r'"((?:[^"\\]|\\.)*)"')
+
+    def test_every_qml_text_has_english(self):
+        from neorgb.i18n import EN
+        missing = []
+        for f in sorted(self.QML.glob("*.qml")):
+            for m in re.finditer(r'qsTr\("((?:[^"\\]|\\.)*)"\)', f.read_text()):
+                if m.group(1) not in EN:
+                    missing.append(f"{f.name}: {m.group(1)}")
+        self.assertEqual(missing, [])
+
+    def test_no_german_text_outside_qstr(self):
+        bilingual = ("Sprache wählen · Choose language",
+                     "Lässt sich jederzeit unter Einstellungen ändern. · You can change this any time under Settings.")
+        found = []
+        for f in sorted(self.QML.glob("*.qml")):
+            for line in f.read_text().splitlines():
+                if line.strip().startswith("//"):
+                    continue
+                for m in self.LIT.finditer(line):
+                    if re.search("[äöüÄÖÜß]", m.group(1)) and not line[:m.start()].endswith("qsTr(") \
+                            and m.group(1) not in bilingual:
+                        found.append(f"{f.name}: {m.group(1)}")
+        self.assertEqual(found, [])
+
+    def test_daemon_names_have_english(self):
+        from neorgb.effects import EFFECTS
+        from neorgb.fancontrol import DEFAULT_CURVES
+        from neorgb.devices.hwmon_fans import PERM_HINT, overdrive_hint
+        from neorgb.i18n import EN
+        names = [e["name"] for e in EFFECTS.values()] + [c["name"] for c in DEFAULT_CURVES.values()] \
+            + [p["name"] for p in ln.PRESETS] + [PERM_HINT, overdrive_hint()[0]]
+        self.assertEqual([n for n in names if n not in EN], [])
+
+    def test_patterns(self):
+        from neorgb.i18n import translate
+        self.assertEqual(translate("Lüfter 3", "en"), "Fan 3")
+        self.assertEqual(translate("Wasser (AIO) fehlt", "en"), "Liquid (AIO) missing")
+        self.assertEqual(translate("WLED unter 10.0.0.9 nicht erreichbar (timed out)", "en"),
+                         "WLED at 10.0.0.9 not reachable (timed out)")
+        self.assertEqual(translate("Kanal 2 gibt es nicht", "en"), "There is no channel 2")
+        self.assertEqual(translate("Mein Lüfter", "en"), "Mein Lüfter")      # names the user typed stay
+        self.assertEqual(translate("Lüfter 3", "de"), "Lüfter 3")
 
 
 if __name__ == "__main__":
