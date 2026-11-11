@@ -94,7 +94,9 @@ Flickable {
                 opacity: off ? 0.6 : 1
                 title: dev.name
                 subtitle: off ? "Ausgeschlossen: NeoRGB fasst dieses Gerät nicht an"
-                              : "Firmware " + (dev.firmware || "?") + " · " + (dev.path || "") + (dev.status !== "ok" ? " · " + dev.status + (dev.error ? ": " + dev.error : "") : "")
+                              : [dev.firmware ? "Firmware " + dev.firmware : "", dev.path || "",
+                                 (dev.status !== "ok" && dev.kind !== "hwmon_fans" && dev.kind !== "amdgpu_fan") ? dev.status + (dev.error ? ": " + dev.error : "") : ""]
+                                .filter(function (x) { return x.length > 0 }).join(" · ")
                 header: [
                     NButton { visible: dc.dev.key !== "openrgb"; text: dc.off ? "Wieder einbinden" : "Ausschließen"; primary: dc.off; danger: !dc.off
                         onClicked: backend.call("set_device", { key: dc.dev.key, disabled: !dc.off, name: dc.dev.name, kind: dc.dev.kind }) },
@@ -112,7 +114,17 @@ Flickable {
                         visible: !dc.off; active: !dc.off
                         width: parent.width
                         property var dev: dc.dev
-                        sourceComponent: dc.dev.kind === "lighting_node" ? lnC : (dc.dev.kind === "commander_core" ? ccC : (dc.dev.kind === "wled" ? wledC : otherC))
+                        sourceComponent: dc.dev.kind === "lighting_node" ? lnC : (dc.dev.kind === "commander_core" ? ccC : (dc.dev.kind === "wled" ? wledC : ((dc.dev.kind === "hwmon_fans" || dc.dev.kind === "amdgpu_fan") ? fanC : otherC)))
+                    }
+                    Column {
+                        visible: !dc.off && (dc.dev.fans || []).length > 0
+                        width: parent.width; spacing: 4
+                        NSwitch { text: "Lüfter von NeoRGB steuern"; checked: page.devCfg(dc.dev.key).fan_control !== false
+                            onToggled: backend.call("set_device", { key: dc.dev.key, fan_control: checked, restart: false }) }
+                        Text { width: parent.width; wrapMode: Text.WordWrap; color: Theme.faint; font.pixelSize: 12
+                            text: dc.dev.kind === "commander_core"
+                                  ? "Aus: Die AIO fährt ihre gespeicherte Kurve. Drehzahlen bleiben unter „Kühlung“ sichtbar."
+                                  : "Aus: " + (dc.dev.kind === "amdgpu_fan" ? "Die Grafikkarte" : "Das BIOS") + " regelt selbst. Drehzahlen bleiben unter „Kühlung“ sichtbar." }
                     }
                     RowLayout {
                         visible: !dc.off && (dc.dev.zones || []).length > 0
@@ -268,6 +280,30 @@ Flickable {
                         onActivated: function (i) { var p = {}; p[String(index)] = opts[i] < 0 ? null : opts[i]; backend.call("set_device", { key: dev.key, ports: p }) }
                     }
                 }
+            }
+        }
+    }
+
+    // ------------------------------------------------- mainboard / GPU fans
+    Component {
+        id: fanC
+        Column {
+            spacing: 8
+            Text { width: parent.width; wrapMode: Text.WordWrap; color: Theme.muted; font.pixelSize: 13
+                text: (dev.fans || []).length + " Lüfter · eingestellt wird unter „Kühlung“." + (dev.kind === "hwmon_fans"
+                      ? " Anschlüsse erscheinen, sobald dort einmal ein Lüfter gedreht hat. Stoppt NeoRGB, regelt wieder das BIOS."
+                      : " Die Kurve läuft in der Grafikkarte selbst, gegen die Hotspot-Temperatur.") }
+            Text { visible: !!dev.error; width: parent.width; wrapMode: Text.WordWrap; color: Theme.warn; font.pixelSize: 13; text: dev.error || "" }
+            Row {
+                visible: !!dev.fix_cmd
+                spacing: 10
+                Rectangle {
+                    width: cmdText.implicitWidth + 24; height: 34; radius: 8
+                    color: Theme.panel; border.color: Theme.line
+                    TextEdit { id: cmdText; anchors.centerIn: parent; text: dev.fix_cmd || ""; readOnly: true; selectByMouse: true
+                        color: Theme.text; selectionColor: Theme.accent; font.family: "monospace"; font.pixelSize: 13 }
+                }
+                NButton { text: "Kopieren"; onClicked: backend.copyText(dev.fix_cmd) }
             }
         }
     }

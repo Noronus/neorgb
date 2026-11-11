@@ -200,6 +200,141 @@ class EffectsTest(unittest.TestCase):
                 out = e.render(z, {"effect": eff, "colors": ["#ff0000", "#0000ff"]}, 1.23, Sensors(50))
                 self.assertEqual(len(out), 72, eff)
 
+    def test_each_effect_keeps_its_own_settings(self):
+        from neorgb.effects import load_snapshot, patch_spec, snapshot_spec
+        s = {"effect": "static", "colors": ["#ff0000"], "speed": 50, "min_brightness": 10}
+        patch_spec(s, {"effect": "rainbow"})
+        patch_spec(s, {"speed": 90, "min_brightness": 20})
+        patch_spec(s, {"effect": "static"})
+        self.assertEqual(s["speed"], 50)                 # static got its own speed back
+        self.assertEqual(s["min_brightness"], 20)        # shared across effects
+        patch_spec(s, {"effect": "rainbow"})
+        self.assertEqual(s["speed"], 90)
+        snap = snapshot_spec(s)
+        self.assertNotIn("by_effect", snap)
+        patch_spec(s, {"effect": "breathing", "colors": ["#00ff00"], "speed": 5})
+        load_snapshot(s, snap)
+        self.assertEqual((s["effect"], s["speed"]), ("rainbow", 90))
+        patch_spec(s, {"effect": "breathing"})
+        self.assertEqual((s["speed"], s["colors"]), (5, ["#00ff00"]))   # parked when the snapshot was loaded
+
+    def test_profile_matches_until_something_changes(self):
+        from neorgb.daemon import active_profile, lighting_profile
+        from neorgb.effects import patch_spec
+        L = {"global": {"effect": "rainbow", "speed": 40},
+             "zones": {"a": {"follow": False, "spec": {"effect": "static", "colors": ["#ff0000"]}},
+                       "b": {"follow": True, "spec": {"effect": "comet"}}}}
+        L["profiles"] = [lighting_profile(L, "Abend")]
+        self.assertEqual(active_profile(L), "Abend")
+        L["zones"]["c"] = {"follow": True}                       # new zone that follows: still the same
+        self.assertEqual(active_profile(L), "Abend")
+        patch_spec(L["zones"]["a"]["spec"], {"colors": ["#00ff00"]})
+        self.assertEqual(active_profile(L), "")
+
+    def test_screen_follows_the_screen_edges(self):
+        from neorgb.screen import W, H
+
+        class Shot:   # left half red, right half blue
+            def __init__(self):
+                self.f = bytes(c for y in range(H) for x in range(W) for c in ((255, 0, 0) if x < W // 2 else (0, 0, 255)))
+
+            def frame(self):
+                return self.f
+
+        e = EffectEngine()
+        e.screen = Shot()
+        z = Zone("z", "d", "Z", 8, [8], "ring")
+        spec = {"effect": "screen", "speed": 100, "saturation": 0}
+        for i in range(40):
+            out = e.render(z, spec, i * 0.1)
+        self.assertGreater(out[2 * 3 + 2], 200)      # LED 2 points right: blue
+        self.assertLess(out[2 * 3], 30)
+        self.assertGreater(out[6 * 3], 200)          # LED 6 points left: red
+        full = e.render(Zone("f", "d", "F", 4), {**spec, "screen_area": "full"}, 0.0)
+        self.assertEqual(len(full), 12)
+        e.screen = None
+        self.assertEqual(len(e.render(z, spec, 0.0)), 24)   # no capture: stays dark, no crash
+
+
+class HwmonFanTest(unittest.TestCase):
+    """Mainboard headers and GPU curve against a fake sysfs directory."""
+
+    def setUp(self):
+        import tempfile
+        from pathlib import Path
+        from neorgb.devices import hwmon_fans as hf
+        self.hf = hf
+        self.tmp = Path(tempfile.mkdtemp())
+        hf.CONFIG_DIR = self.tmp / "cfg"
+        self.chip = self.tmp / "hwmon10"
+        self.chip.mkdir()
+        for p in (1, 3):
+            (self.chip / f"pwm{p}").write_text("239\n")
+            (self.chip / f"pwm{p}_enable").write_text("5\n")
+            (self.chip / f"fan{p}_input").write_text("0\n" if p == 1 else "900\n")
+
+        class Cfg:
+            data = {"cooling": {"channels": {}, "curves": {}, "settings": {}}, "devices": {}}
+            import threading
+            lock = threading.RLock()
+
+            def mark(self):
+                pass
+
+        class D:
+            cfg = Cfg()
+
+            def device_cfg(self, key):
+                return self.cfg.data["devices"].get(key, {})
+        self.D = D
+
+    def rd(self, name):
+        return (self.chip / name).read_text().strip()
+
+    def test_takeover_and_release(self):
+        b = self.hf.BoardChip(self.D(), self.chip, "nct6799")
+        b.poll()
+        self.assertEqual([f["port"] for f in b.fans], [3])      # header 1 never spun
+        b.apply({3: 50})
+        self.assertEqual(self.rd("pwm3_enable"), "1")
+        self.assertEqual(self.rd("pwm3"), "128")
+        b.apply({3: None})
+        self.assertEqual(self.rd("pwm3_enable"), "5")
+        self.assertEqual(self.rd("pwm1_enable"), "5")            # never touched
+
+    def test_crash_leftover_goes_back_to_bios(self):
+        b = self.hf.BoardChip(self.D(), self.chip, "nct6799")
+        b.apply({3: 80})
+        b2 = self.hf.BoardChip(self.D(), self.chip, "nct6799")  # next start after a crash
+        b2.restore_after_crash()
+        self.assertEqual(self.rd("pwm3_enable"), "5")
+
+    def test_gpu_curve_points(self):
+        g = self.hf.AmdGpu.__new__(self.hf.AmdGpu)
+        g.temp_range, g.duty_range = (25, 100), (20, 100)
+        curves = {"c": {"sensor": "gpu", "points": [[30, 10], [60, 50], [90, 100]]},
+                  "water": {"sensor": "liquid", "points": [[25, 20], [40, 100]]}}
+        self.assertIsNone(g.points_for({"mode": "curve", "curve": "water"}, curves))
+        pts = g.points_for({"mode": "curve", "curve": "c"}, curves)
+        self.assertEqual(len(pts), 5)
+        self.assertEqual(pts[0], (30, 20))                        # clamped to the GPU minimum
+        self.assertEqual(pts[-1], (90, 100))
+        self.assertEqual(g.points_for({"mode": "fixed", "fixed": 60}, curves)[2][1], 60)
+        self.assertIsNone(g.points_for({"mode": "hardware"}, curves))
+
+    def test_gpu_fixed_switches_zero_rpm_off_and_back(self):
+        from pathlib import Path
+        g = self.hf.AmdGpu.__new__(self.hf.AmdGpu)
+        g.pci, g.writable, g.owned, g.sent, g.zero_rpm_orig = "x", True, False, None, None
+        g.curve_file, g.zero_rpm_file = self.tmp / "fan_curve", self.tmp / "fan_zero_rpm_enable"
+        g.curve_file.write_text("")
+        g.zero_rpm_file.write_text("FAN_ZERO_RPM_ENABLE:\n1\n")
+        g.apply([(25, 60)] * 5, fixed=True)
+        self.assertEqual(g.zero_rpm_orig, "1")
+        g.apply(None)
+        self.assertIsNone(g.zero_rpm_orig)
+
+
 
 if __name__ == "__main__":
     unittest.main()

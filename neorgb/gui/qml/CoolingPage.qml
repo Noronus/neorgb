@@ -19,6 +19,19 @@ Flickable {
     function fanById(id) { var f = st.fans || []; for (var i = 0; i < f.length; i++) if (f[i].id === id) return f[i]; return null }
     function curveIds() { return Object.keys(curves) }
     function curveName(id) { return curves[id] ? curves[id].name : id }
+    // The GPU runs its curve itself and only knows its own temperature.
+    function gpuCurve(id) { var s = curves[id] ? curves[id].sensor || "" : ""; return s === "gpu" || s.indexOf("hwmon:amdgpu") === 0 }
+    function fanCurveIds(fan) {
+        if (fan.source !== "gpu") return curveIds()
+        var ids = curveIds().filter(gpuCurve)
+        if (fan.cfg.curve && curves[fan.cfg.curve] && ids.indexOf(fan.cfg.curve) < 0) ids.push(fan.cfg.curve)
+        return ids
+    }
+    function defaultCurve(fan) {
+        var c = fan.cfg.curve
+        if (fan.source === "gpu") { if (c && gpuCurve(c)) return c; var g = curveIds().filter(gpuCurve); return g.length ? g[0] : "gpu" }
+        return c || (fan.pump ? "pump_balanced" : "balanced")
+    }
     function sensorRange(sid) { return sid === "liquid" ? [20, 55] : [20, 100] }
     readonly property var curCurve: curves[selCurve] || ({ points: [], sensor: "liquid", name: "" })
     readonly property var range: sensorRange(curCurve.sensor)
@@ -45,7 +58,7 @@ Flickable {
 
         Column {
             Text { text: "Kühlung"; color: Theme.text; font.pixelSize: 26; font.weight: Font.Bold }
-            Text { text: "Lüfter und Pumpe der AIO folgen einer Kurve oder laufen fest. Ziehe Punkte, Doppelklick fügt hinzu, Rechtsklick entfernt."; color: Theme.muted; font.pixelSize: 13; wrapMode: Text.WordWrap; width: col.width }
+            Text { text: "Lüfter, Pumpe, Mainboard- und GPU-Lüfter folgen einer Kurve, laufen fest oder bleiben bei BIOS/GPU. Ziehe Punkte, Doppelklick fügt hinzu, Rechtsklick entfernt."; color: Theme.muted; font.pixelSize: 13; wrapMode: Text.WordWrap; width: col.width }
         }
 
         // ---------------------------------------------------- channel cards
@@ -59,13 +72,14 @@ Flickable {
                     property var lv: win.live(modelData.id)
                     property bool sel: page.selFan === modelData.id
                     width: Math.max(220, (col.width - Theme.gap * 3) / 4)
-                    height: 168
+                    height: Math.max(168, cardCol.implicitHeight + 28)
                     radius: Theme.radius
                     color: sel ? Theme.cardHi : Theme.card
                     border.color: sel ? (modelData.pump ? Theme.good : Theme.accent) : Theme.line
                     border.width: sel ? 2 : 1
                     MouseArea { anchors.fill: parent; onClicked: { page.selFan = modelData.id; if (modelData.cfg.mode === "curve") page.selCurve = modelData.cfg.curve } }
                     Column {
+                        id: cardCol
                         x: 16; y: 14; width: parent.width - 32; spacing: 8
                         Row {
                             width: parent.width
@@ -81,20 +95,35 @@ Flickable {
                             Item { width: 10; height: 1 }
                             Text { text: fc.lv.duty == null ? "" : Math.round(fc.lv.duty) + " %"; color: modelData.pump ? Theme.good : Theme.accent; font.pixelSize: 15; font.weight: Font.DemiBold; anchors.baseline: parent.children[0].baseline }
                         }
+                        Text { visible: modelData.managed === false; width: parent.width; wrapMode: Text.WordWrap
+                            text: "Regelt sich selbst (Lüftersteuerung für dieses Gerät aus, siehe Geräte)"; color: Theme.faint; font.pixelSize: 12 }
+                        Text { visible: modelData.writable === false && modelData.managed !== false; width: parent.width; wrapMode: Text.WordWrap
+                            text: modelData.hint || "Nur Anzeige: keine Schreibrechte (siehe Geräte)"; color: Theme.faint; font.pixelSize: 12 }
                         Row {
                             spacing: 6
+                            visible: modelData.writable !== false && modelData.managed !== false
+                            Chip { visible: !!modelData.hw_name; text: modelData.hw_name || ""; selected: modelData.cfg.mode === "hardware"; height: 26
+                                onClicked: backend.call("set_fan", { fan: modelData.id, mode: "hardware" }) }
                             Chip { text: "Kurve"; selected: modelData.cfg.mode === "curve"; height: 26
-                                onClicked: { backend.call("set_fan", { fan: modelData.id, mode: "curve", curve: modelData.cfg.curve || (modelData.pump ? "pump_balanced" : "balanced") }); page.selFan = modelData.id } }
+                                onClicked: { backend.call("set_fan", { fan: modelData.id, mode: "curve", curve: page.defaultCurve(modelData) }); page.selFan = modelData.id } }
                             Chip { text: "Fest"; selected: modelData.cfg.mode === "fixed"; height: 26
                                 onClicked: { backend.call("set_fan", { fan: modelData.id, mode: "fixed", fixed: Math.round(fc.lv.duty || 50) }); page.selFan = modelData.id } }
                         }
+                        Text { visible: !!modelData.mode_note && modelData.writable !== false && modelData.managed !== false; width: parent.width; wrapMode: Text.WordWrap
+                            text: modelData.mode_note || ""; color: Theme.warn; font.pixelSize: 11 }
                         Loader {
                             width: parent.width
-                            sourceComponent: modelData.cfg.mode === "fixed" ? fixedC : curveC
+                            visible: modelData.writable !== false && modelData.managed !== false
+                            sourceComponent: modelData.cfg.mode === "hardware" ? hwC : (modelData.cfg.mode === "fixed" ? fixedC : curveC)
                             property var fan: modelData
                         }
                     }
                 }
+            }
+            Component {
+                id: hwC
+                Text { text: fan.source === "gpu" ? "Die Grafikkarte regelt selbst" : "Das Mainboard regelt nach BIOS-Einstellung"
+                    color: Theme.muted; font.pixelSize: 12; wrapMode: Text.WordWrap; height: 34; verticalAlignment: Text.AlignVCenter }
             }
             Component {
                 id: fixedC
@@ -107,10 +136,11 @@ Flickable {
             Component {
                 id: curveC
                 NCombo {
-                    model: page.curveIds().map(function (k) { return { id: k, name: page.curveName(k) } })
+                    property var ids: page.fanCurveIds(fan)
+                    model: ids.map(function (k) { return { id: k, name: page.curveName(k) } })
                     textRole: "name"
-                    currentIndex: page.curveIds().indexOf(fan.cfg.curve)
-                    onActivated: function (i) { var id = page.curveIds()[i]; backend.call("set_fan", { fan: fan.id, mode: "curve", curve: id }); page.selCurve = id; page.selFan = fan.id }
+                    currentIndex: ids.indexOf(fan.cfg.curve)
+                    onActivated: function (i) { var id = ids[i]; backend.call("set_fan", { fan: fan.id, mode: "curve", curve: id }); page.selCurve = id; page.selFan = fan.id }
                 }
             }
         }

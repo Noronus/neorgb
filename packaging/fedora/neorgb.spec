@@ -1,5 +1,5 @@
 Name:           neorgb
-Version:        0.1.0
+Version:        0.2.0
 Release:        1%{?dist}
 Summary:        RGB lighting and Corsair AIO / fan control for Linux
 License:        GPL-3.0-or-later
@@ -16,6 +16,9 @@ BuildRequires:  systemd-rpm-macros
 Requires:       python3-pyside6
 Requires:       qt6-qtsvg
 Recommends:     openrgb
+Recommends:     python3-gobject
+Recommends:     pipewire-gstreamer
+Recommends:     gstreamer1-plugins-base
 
 %description
 NeoRGB controls Corsair iCUE Commander CORE (pump, fans, liquid temperature,
@@ -38,6 +41,8 @@ install -Dm644 neorgb.desktop %{buildroot}%{_datadir}/applications/neorgb.deskto
 sed 's|@BIN@|%{_bindir}|' packaging/neorgbd.service > neorgbd.service
 install -Dm644 neorgbd.service %{buildroot}%{_userunitdir}/neorgbd.service
 install -Dm644 packaging/60-neorgb.rules %{buildroot}%{_udevrulesdir}/60-neorgb.rules
+install -Dm644 packaging/neorgb.sysusers %{buildroot}%{_sysusersdir}/neorgb.conf
+install -Dm644 packaging/neorgb-modules.conf %{buildroot}%{_modulesloaddir}/neorgb.conf
 
 %check
 %{python3} -m unittest tests.test_offline
@@ -52,7 +57,12 @@ install -Dm644 packaging/60-neorgb.rules %{buildroot}%{_udevrulesdir}/60-neorgb.
 %{_datadir}/icons/hicolor/scalable/apps/neorgb.svg
 %{_userunitdir}/neorgbd.service
 %{_udevrulesdir}/60-neorgb.rules
+%{_sysusersdir}/neorgb.conf
+%{_modulesloaddir}/neorgb.conf
 
 %changelog
+* Wed Nov 11 2026 Noronus <74186111+Noronus@users.noreply.github.com> - 0.2.0-1
+- Mainboard and AMD GPU fans, screen lighting effect, tray icon, WLED
+
 * Sun Nov 08 2026 Noronus <74186111+Noronus@users.noreply.github.com> - 0.1.0-1
 - First release

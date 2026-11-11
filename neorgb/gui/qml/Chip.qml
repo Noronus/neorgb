@@ -8,6 +8,7 @@ Rectangle {
     property color tint: Theme.accent
     signal clicked()
     signal doubleClicked()
+    signal rightClicked()
     height: 30
     width: t.implicitWidth + 26
     radius: 15
@@ -15,5 +16,7 @@ Rectangle {
     border.color: selected ? tint : Theme.line
     Text { id: t; anchors.centerIn: parent; text: c.text; color: c.selected ? Theme.text : Theme.muted; font.pixelSize: 13 }
     MouseArea { id: ma; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
-        onClicked: c.clicked(); onDoubleClicked: c.doubleClicked() }
+        acceptedButtons: Qt.LeftButton | Qt.RightButton
+        onClicked: function (m) { if (m.button === Qt.RightButton) c.rightClicked(); else c.clicked() }
+        onDoubleClicked: function (m) { if (m.button === Qt.LeftButton) c.doubleClicked() } }
 }

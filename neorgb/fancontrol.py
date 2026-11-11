@@ -51,6 +51,10 @@ DEFAULT_CURVES = {
         "name": "CPU-Temperatur", "sensor": "cpu", "average": 8,
         "points": [[40, 25], [55, 30], [65, 45], [75, 70], [85, 100]],
     },
+    "gpu": {
+        "name": "GPU-Hotspot", "sensor": "gpu", "average": 0,
+        "points": [[50, 25], [65, 35], [75, 50], [85, 75], [95, 100]],
+    },
 }
 
 DEFAULT_SETTINGS = {"hysteresis": 1.5, "ramp_up": 8.0, "ramp_down": 3.0,

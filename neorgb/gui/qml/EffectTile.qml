@@ -39,6 +39,7 @@ Rectangle {
         "comet": ["#0c0e13", "#1e3a8a", "#f472b6"],
         "twinkle": ["#111827", "#fde68a", "#111827"],
         "temperature": ["#3b82f6", "#fbbf24", "#ef4444"],
+        "screen": ["#f97316", "#7c3aed", "#0ea5e9"],
         "off": ["#000000", "#000000", "#000000"]
     })[effectId] || ["#444", "#666", "#888"]
     Text { x: 12; anchors.bottom: parent.bottom; anchors.bottomMargin: 10; width: tile.width - 20; elide: Text.ElideRight; text: tile.label; color: tile.selected ? Theme.text : Theme.muted; font.pixelSize: 13 }

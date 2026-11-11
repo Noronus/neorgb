@@ -30,4 +30,11 @@ if [ ! -e /usr/lib/udev/rules.d/60-openrgb.rules ] && [ ! -e /etc/udev/rules.d/6
     echo "Hinweis: keine OpenRGB-udev-Regeln gefunden. Ohne sie fehlt der Zugriff auf /dev/hidraw*."
     echo "         openrgb --print-udev-rules | sudo tee /etc/udev/rules.d/60-openrgb.rules"
 fi
+if ! getent group neorgb >/dev/null; then
+    echo "Hinweis: Für Mainboard- und GPU-Lüfter einmalig (root):"
+    echo "         sudo groupadd -r neorgb && sudo usermod -aG neorgb \$USER"
+    echo "         sudo install -Dm644 $SRC/packaging/60-neorgb.rules /etc/udev/rules.d/60-neorgb.rules"
+    echo "         sudo install -Dm644 $SRC/packaging/neorgb-modules.conf /etc/modules-load.d/neorgb.conf"
+    echo "         danach neu starten"
+fi
 echo "Installiert. Autostart + sofort starten:  systemctl --user enable --now neorgbd"

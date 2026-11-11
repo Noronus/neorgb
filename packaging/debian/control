@@ -29,7 +29,7 @@ Depends: ${misc:Depends},
          qml6-module-qtquick-window,
          qml6-module-qtqml-workerscript,
          qt6-svg-plugins
-Recommends: openrgb
+Recommends: openrgb, python3-gi, gir1.2-gstreamer-1.0, gstreamer1.0-pipewire, gstreamer1.0-plugins-base
 Description: RGB lighting and Corsair AIO / fan control
  NeoRGB controls Corsair iCUE Commander CORE (pump, fans, liquid temperature,
  RGB) and Lighting Node PRO / CORE directly, with fan curves that are also

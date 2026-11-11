@@ -15,6 +15,7 @@ und einer Oberfläche.
   nach Wassertemperatur. Die Pumpe fällt nie unter 50 %. Ab 50 °C Wasser gehen
   alle Kanäle auf 100 %. Fällt der Sensor einer Kurve aus, laufen nur deren
   Kanäle auf einer einstellbaren Leistung (Standard 100 %).
+- **Mainboard- und GPU-Lüfter** (NCT67xx, AMD Radeon) mit denselben Kurven
 - **WLED** über das Netzwerk, per IP-Adresse eingetragen
 - **Alles andere** (ASUS Aura, RAM, Tastatur, Maus) über einen privaten
   OpenRGB-Server, den NeoRGB selbst startet. In dessen Konfiguration sind die
@@ -28,9 +29,9 @@ Fertige Pakete gibt es unter
 
 | System | Befehl |
 |---|---|
-| Arch, CachyOS | `sudo pacman -U neorgb-0.1.0-1-any.pkg.tar.zst` |
-| Debian 13 | `sudo apt install ./neorgb_0.1.0-1_all.deb` |
-| Fedora 44 | `sudo dnf install ./neorgb-0.1.0-1.fc44.noarch.rpm` |
+| Arch, CachyOS | `sudo pacman -U neorgb-0.2.0-1-any.pkg.tar.zst` |
+| Debian 13 | `sudo apt install ./neorgb_0.2.0-1_all.deb` |
+| Fedora 44 | `sudo dnf install ./neorgb-0.2.0-1.fc44.noarch.rpm` |
 
 Danach einmal:
 
@@ -64,6 +65,27 @@ die Oberfläche einmal. Das Ergebnis liegt in `dist/`.
 |---|---|
 | ![Kühlung](docs/screenshots/kuehlung.png) **Kühlung**: Kurven pro Lüfter und Pumpe, Punkte ziehen | ![Beleuchtung](docs/screenshots/beleuchtung.png) **Beleuchtung**: ein Effekt für alles oder pro Zone |
 | ![Geräte](docs/screenshots/geraete.png) **Geräte**: was an den Lighting Nodes hängt, LEDs zählen | ![Einstellungen](docs/screenshots/einstellungen.png) **Einstellungen** |
+
+## Mainboard- und GPU-Lüfter
+
+Lüfter am Mainboard (NCT67xx, also die meisten ASUS-, MSI- und
+Gigabyte-Boards) und an AMD-Grafikkarten erscheinen unter **Kühlung**.
+Standard ist „BIOS“ bzw. „GPU“: Dann regelt weiter das Board bzw. die Karte,
+und NeoRGB zeigt nur die Drehzahl. Mit „Kurve“ oder „Fest“ übernimmt
+NeoRGB. Stoppt der Dienst, regelt wieder das BIOS.
+
+Das Paket lädt den Treiber `nct6775` beim Booten und legt die Gruppe
+`neorgb` an. Wer Lüfter steuern will, tritt ihr einmal bei:
+
+```sh
+sudo usermod -aG neorgb $USER   # danach neu starten
+```
+
+**AMD-Grafikkarten ab RX 7000** lassen ihren Lüfter nur steuern, wenn
+Overdrive an ist. Dafür den Kernel-Parameter
+`amdgpu.ppfeaturemask=0xfff7ffff` setzen und neu starten. Die Kurve läuft
+dann in der Karte selbst, mit 5 Punkten gegen die Hotspot-Temperatur.
+Ohne den Parameter zeigt NeoRGB nur die Drehzahl.
 
 ## WLED
 

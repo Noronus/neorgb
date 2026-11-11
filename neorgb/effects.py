@@ -75,13 +75,105 @@ EFFECTS = {
     "comet":       {"name": "Komet", "params": ["colors2", "speed", "tail", "reverse"]},
     "twinkle":     {"name": "Funkeln", "params": ["colors", "background", "speed", "density"]},
     "temperature": {"name": "Temperatur", "params": ["sensor", "temp_low", "temp_high", "colors2"]},
+    "screen":      {"name": "Bildschirm", "params": ["screen_area", "speed", "saturation", "reverse"]},
     "off":         {"name": "Aus", "params": []},
 }
+
+
+# Settings every effect shares.  Everything else (colours, speed, ...) belongs
+# to the effect that is active and is parked in "by_effect" on a switch.
+SHARED_KEYS = ("effect", "by_effect", "min_brightness")
+
+
+def patch_spec(spec: dict, patch: dict) -> dict:
+    """Apply a GUI change to a lighting spec in place.
+
+    Switching the effect stores the old effect's settings and brings back the
+    ones the new effect had last time (or keeps the current ones the first time).
+    """
+    old = spec.get("effect", "static")
+    new = patch.get("effect", old)
+    if new != old:
+        per = spec.setdefault("by_effect", {})
+        per[old] = {k: v for k, v in spec.items() if k not in SHARED_KEYS}
+        spec.update(per.get(new, {}))
+        spec["effect"] = new
+    spec.update({k: v for k, v in patch.items() if k not in ("effect", "by_effect")})
+    return spec
+
+
+def snapshot_spec(spec: dict) -> dict:
+    """The active effect with its settings, without the parked ones."""
+    return {k: v for k, v in spec.items() if k != "by_effect"}
+
+
+def load_snapshot(spec: dict, snap: dict) -> dict:
+    """Bring back a saved effect; the effect that was active is parked as on a switch."""
+    patch_spec(spec, {"effect": snap.get("effect", "static")})
+    for k in [k for k in spec if k not in SHARED_KEYS]:
+        del spec[k]
+    spec.update({k: v for k, v in snap.items() if k != "by_effect"})
+    return spec
 
 
 class EffectEngine:
     def __init__(self) -> None:
         self.state: dict[str, dict] = {}
+        self.screen = None        # ScreenCapture, set by the daemon
+        self._scache: tuple = (None, {})
+
+    def _screen(self, zone: Zone, spec: dict, t: float) -> list[tuple]:
+        """Colours from the screen: the whole picture, or the screen edge around each fan."""
+        from .screen import sample
+        n = zone.leds
+        frame = self.screen.frame() if self.screen else None
+        st = self.state.setdefault(zone.id + ":scr", {"px": [(0.0, 0.0, 0.0)] * n, "last": t})
+        if len(st["px"]) != n:
+            st["px"] = [(0.0, 0.0, 0.0)] * n
+        if frame is None:
+            return st["px"]
+        if self._scache[0] is not frame:           # one sample per rectangle and frame, shared by all zones
+            self._scache = (frame, {})
+        memo = self._scache[1]
+
+        def smp(*r):
+            r = tuple(round(v, 4) for v in r)
+            if r not in memo:
+                memo[r] = sample(frame, *r)
+            return memo[r]
+        if spec.get("screen_area", "edges") == "full":
+            target = [smp(0, 0, 1, 1)] * n
+        else:
+            target = []
+            rev = bool(spec.get("reverse"))
+            if zone.kind == "ring":
+                for size in zone.segs():
+                    for i in range(size):
+                        a = (i / size) * 2 * math.pi * (-1 if rev else 1)
+                        # point on the screen border in this direction, LED 0 at the top
+                        dx, dy = math.sin(a), -math.cos(a)
+                        k = 0.5 / max(abs(dx), abs(dy))
+                        cx, cy = 0.5 + dx * k, 0.5 + dy * k
+                        d = 0.12
+                        target.append(smp(max(0, cx - d), max(0, cy - d), min(1, cx + d), min(1, cy + d)))
+            else:
+                for i in range(n):
+                    x = (n - 1 - i if rev else i) / n
+                    target.append(smp(x, 0, x + 1 / n, 1))
+        sat = float(spec.get("saturation", 40)) / 100.0
+        if sat:
+            out = []
+            for r, g, b in target:
+                m = (r + g + b) / 3
+                f = 1 + 1.5 * sat
+                out.append((max(0, min(255, m + (r - m) * f)), max(0, min(255, m + (g - m) * f)), max(0, min(255, m + (b - m) * f))))
+            target = out
+        dt = max(0.0, min(0.5, t - st["last"]))
+        st["last"] = t
+        tau = _speed(spec, 1.0, 0.03)          # seconds to follow a change
+        f = 1 - math.exp(-dt / tau) if tau > 0 else 1.0
+        st["px"] = [mix(a, b, f) for a, b in zip(st["px"], target)]
+        return st["px"]
 
     def render(self, zone: Zone, spec: dict, t: float, sensors=None) -> bytearray:
         n = zone.leds
@@ -163,6 +255,8 @@ class EffectEngine:
                 else:
                     c = mix(cold, hot, f)
                 px = [c] * n
+        elif eff == "screen":
+            px = self._screen(zone, spec, t)
         else:
             px = [colors[0]] * n
 

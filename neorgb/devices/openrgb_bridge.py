@@ -253,6 +253,10 @@ class OpenRGBBridge(threading.Thread):
                                                     "max": z["max"], "index": i} for i, z in enumerate(c["zones"])]})
         return out
 
+    def reload(self) -> None:
+        self._reload = True
+        self._wake.set()
+
     def resize(self, key: str, zone: int, size: int) -> None:
         for c in self.ctrls:
             if c["key"] == key and self.sdk:

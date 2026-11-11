@@ -1,3 +1,9 @@
 # NeoRGB: give the logged-in user access to Corsair iCUE devices
 # (Commander CORE / XT / ST, Lighting Node PRO / CORE) over hidraw.
 SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1b1c", TAG+="uaccess"
+
+# Fan control: members of group "neorgb" may set mainboard fan headers
+# (pwmN, pwmN_enable) and the fan curve of AMD GPUs (needs overdrive,
+# amdgpu.ppfeaturemask bit 0x4000).  Join with: sudo usermod -aG neorgb $USER
+ACTION!="remove", SUBSYSTEM=="hwmon", ATTR{name}!="amdgpu", RUN+="/bin/sh -c 'chgrp neorgb /sys%p/pwm[0-9] /sys%p/pwm[0-9]_enable; chmod g+w /sys%p/pwm[0-9] /sys%p/pwm[0-9]_enable'"
+ACTION!="remove", SUBSYSTEM=="hwmon", ATTR{name}=="amdgpu", RUN+="/bin/sh -c 'cd /sys%p/device/gpu_od/fan_ctrl 2>/dev/null && chgrp neorgb fan_curve fan_zero_rpm_enable && chmod g+w fan_curve fan_zero_rpm_enable'"

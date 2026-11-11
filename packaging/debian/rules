@@ -14,3 +14,4 @@ execute_after_dh_auto_install:
 	sed 's|@BIN@|/usr/bin|' packaging/neorgbd.service > debian/neorgbd.service.out
 	install -Dm644 debian/neorgbd.service.out debian/neorgb/usr/lib/systemd/user/neorgbd.service
 	install -Dm644 packaging/60-neorgb.rules debian/neorgb/usr/lib/udev/rules.d/60-neorgb.rules
+	install -Dm644 packaging/neorgb-modules.conf debian/neorgb/usr/lib/modules-load.d/neorgb.conf

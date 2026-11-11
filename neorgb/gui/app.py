@@ -242,6 +242,11 @@ class Backend(QObject):
         else:
             self.t_frame.stop()
 
+    @Slot(str)
+    def copyText(self, text: str) -> None:
+        QApplication.clipboard().setText(text)
+        self.toast.emit("Kopiert")
+
     # ------------------------------------------------------ service control
     @staticmethod
     def _unit_active() -> bool:

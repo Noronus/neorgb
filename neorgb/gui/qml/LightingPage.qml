@@ -22,11 +22,19 @@ Flickable {
     readonly property var params: (effects[spec.effect] || { params: [] }).params
     readonly property bool editable: target === "" || own
 
+    function sameSpec(a, b) {
+        var ka = Object.keys(a).filter(function (k) { return k !== "by_effect" }).sort()
+        var kb = Object.keys(b).filter(function (k) { return k !== "by_effect" }).sort()
+        if (ka.join() !== kb.join()) return false
+        for (var i = 0; i < ka.length; i++) if (JSON.stringify(a[ka[i]]) !== JSON.stringify(b[ka[i]])) return false
+        return true
+    }
     function has(p) { return params.indexOf(p) >= 0 }
     function apply(patch) {
         if (target === "") backend.call("set_global", { spec: patch })
         else backend.call("set_zone", { zone: target, follow: false, spec: patch })
     }
+    readonly property var saved: ((lighting.saved || {})[target || "global"]) || []
     function colorsWanted() { return has("colors1") ? 1 : (has("colors2") ? 2 : (has("colors") ? 6 : 0)) }
 
     ColorPicker {
@@ -60,6 +68,40 @@ Flickable {
             Text { text: "Gesamthelligkeit"; color: Theme.muted; font.pixelSize: 13 }
             NSlider { Layout.preferredWidth: 260; from: 0; to: 100; suffix: " %"; value: page.lighting.brightness || 0
                 onMoved: backend.call("set_brightness", { value: value }) }
+        }
+
+        // ----------------------------------------------------------- profiles
+        Card {
+            Layout.fillWidth: true
+            title: "Profile"
+            subtitle: "Ein Profil speichert die Effekte aller Zonen auf einmal"
+            Column {
+                width: parent.width
+                spacing: 8
+                Flow {
+                    width: parent.width; spacing: 8
+                    Repeater {
+                        model: page.lighting.profiles || []
+                        Chip { text: modelData.name; selected: st.active_profile === modelData.name
+                            onClicked: backend.call("load_profile", { index: index })
+                            onRightClicked: backend.call("delete_profile", { index: index }) }
+                    }
+                    TextField {
+                        id: profName
+                        width: 180; height: 30
+                        placeholderText: "Name"
+                        color: Theme.text; placeholderTextColor: Theme.faint; font.pixelSize: 13
+                        background: Rectangle { radius: 15; color: Theme.panel; border.color: profName.activeFocus ? Theme.accent : Theme.line }
+                        leftPadding: 12
+                        onAccepted: profBtn.clicked()
+                    }
+                    NButton { id: profBtn; text: "Alles speichern"; height: 30
+                        onClicked: { backend.call("save_profile", { name: profName.text }); profName.text = "" } }
+                }
+                Text { width: parent.width; wrapMode: Text.WordWrap; color: Theme.faint; font.pixelSize: 11
+                    text: (page.lighting.profiles || []).length ? "Klick lädt das Profil. Rechtsklick löscht. Gleicher Name überschreibt."
+                                                                : "Noch keine Profile. Speichert den globalen Effekt und alle Zonen mit eigenem Effekt." }
+            }
         }
 
         // ----------------------------------------------------------- targets
@@ -101,17 +143,47 @@ Flickable {
             }
         }
 
-        // ------------------------------------------------------- zone switch
+        // ------------------------------------------- zone switch + saved effects
         Card {
             Layout.fillWidth: true
-            visible: page.tzone !== null
-            title: page.tzone ? page.tzone.name : ""
-            subtitle: page.tzone ? page.tzone.leds + " LEDs" : ""
-            header: [ NButton { text: "Aufblinken lassen"; onClicked: backend.call("identify", { zone: page.target }) } ]
-            NSwitch {
-                text: "Eigener Effekt für diese Zone"
-                checked: page.own
-                onToggled: backend.call("set_zone", { zone: page.target, follow: !checked })
+            title: page.tzone ? page.tzone.name : "Globaler Effekt"
+            subtitle: page.tzone ? page.tzone.leds + " LEDs" : "Gilt für alle Zonen ohne eigenen Effekt"
+            header: [ NButton { visible: page.tzone !== null; text: "Aufblinken lassen"; onClicked: backend.call("identify", { zone: page.target }) } ]
+            Column {
+                width: parent.width
+                spacing: 8
+                NSwitch {
+                    visible: page.tzone !== null
+                    text: "Eigener Effekt für diese Zone"
+                    checked: page.own
+                    onToggled: backend.call("set_zone", { zone: page.target, follow: !checked })
+                }
+                Item { visible: page.tzone !== null; width: 1; height: 6 }
+                SectionLabel { text: "Gespeicherte Effekte" }
+                Flow {
+                    width: parent.width; spacing: 8
+                    Repeater {
+                        model: page.saved
+                        Chip { text: modelData.name; tint: Theme.accent2
+                            selected: page.editable && page.sameSpec(modelData.spec, page.spec)
+                            onClicked: backend.call("load_effect", { target: page.target, index: index })
+                            onRightClicked: backend.call("delete_effect", { target: page.target, index: index }) }
+                    }
+                    TextField {
+                        id: saveName
+                        width: 180; height: 30
+                        placeholderText: "Name"
+                        color: Theme.text; placeholderTextColor: Theme.faint; font.pixelSize: 13
+                        background: Rectangle { radius: 15; color: Theme.panel; border.color: saveName.activeFocus ? Theme.accent : Theme.line }
+                        leftPadding: 12
+                        onAccepted: saveBtn.clicked()
+                    }
+                    NButton { id: saveBtn; text: "Aktuellen speichern"; height: 30
+                        onClicked: { backend.call("save_effect", { target: page.target, name: saveName.text }); saveName.text = "" } }
+                }
+                Text { width: parent.width; wrapMode: Text.WordWrap; color: Theme.faint; font.pixelSize: 11
+                    text: page.saved.length ? "Klick lädt den Effekt" + (page.target === "" ? "" : " (die Zone bekommt dann ihren eigenen Effekt)") + ". Rechtsklick löscht. Gleicher Name überschreibt."
+                                            : "Noch nichts gespeichert. Ohne Namen wird der Effektname verwendet." }
             }
         }
 
@@ -171,7 +243,19 @@ Flickable {
                 GridLayout {
                     width: Math.min(parent.width, 720)
                     columns: 2; columnSpacing: 24; rowSpacing: 10
-                    Text { visible: page.has("speed"); text: "Geschwindigkeit"; color: Theme.muted; font.pixelSize: 13 }
+                    Text { visible: page.has("screen_area"); text: "Bildbereich"; color: Theme.muted; font.pixelSize: 13 }
+                    Row { visible: page.has("screen_area"); spacing: 8
+                        Chip { text: "Rand rundum"; selected: (page.spec.screen_area || "edges") === "edges"; onClicked: page.apply({ screen_area: "edges" }) }
+                        Chip { text: "Ganzes Bild"; selected: page.spec.screen_area === "full"; onClicked: page.apply({ screen_area: "full" }) } }
+                    Text { visible: page.has("saturation"); text: "Farbverstärkung"; color: Theme.muted; font.pixelSize: 13 }
+                    NSlider { visible: page.has("saturation"); Layout.fillWidth: true; from: 0; to: 100; suffix: " %"; value: page.spec.saturation === undefined ? 40 : page.spec.saturation
+                        onPressedChanged: if (!pressed) page.apply({ saturation: Math.round(value) }) }
+                    Text { visible: page.has("screen_area"); Layout.columnSpan: 2; Layout.fillWidth: true; wrapMode: Text.WordWrap; font.pixelSize: 12
+                        readonly property var sc: st.screen || ({})
+                        color: sc.error ? Theme.warn : Theme.faint
+                        text: sc.error ? "Bildschirmaufnahme: " + sc.error
+                            : (sc.live ? "Bildschirm wird aufgenommen." : "Beim ersten Mal fragt KDE, welcher Bildschirm geteilt werden soll. Danach läuft es ohne Nachfrage.") }
+                    Text { visible: page.has("speed"); text: page.has("screen_area") ? "Reaktion" : "Geschwindigkeit"; color: Theme.muted; font.pixelSize: 13 }
                     NSlider { visible: page.has("speed"); Layout.fillWidth: true; from: 0; to: 100; value: page.spec.speed === undefined ? 50 : page.spec.speed
                         onPressedChanged: if (!pressed) page.apply({ speed: Math.round(value) }) }
                     Text { visible: page.has("scale"); text: "Wiederholungen"; color: Theme.muted; font.pixelSize: 13 }

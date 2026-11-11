@@ -9,6 +9,7 @@ Threads:
 
 from __future__ import annotations
 
+import copy
 import json
 import logging
 import os
@@ -20,9 +21,11 @@ import time
 from pathlib import Path
 
 from .config import CONFIG_DIR, Config
+from .screen import ScreenCapture
+from .devices.hwmon_fans import HwmonFans
 from .devices.wled import WLEDBridge
-from .effects import EFFECTS, EffectEngine, Zone
-from .fancontrol import CRITICAL_LIQUID, DEFAULT_CURVES, FanController, interpolate
+from .effects import EFFECTS, EffectEngine, Zone, load_snapshot, patch_spec, snapshot_spec
+from .fancontrol import CRITICAL_LIQUID, DEFAULT_CURVES, FAILSAFE_DUTY, FanController, interpolate
 from .hidraw import HidError, HidInfo, enumerate_hidraw
 from .sensors import Sensors
 from .devices import commander_core as ccmod
@@ -124,6 +127,10 @@ class CommanderCoreWorker(Worker):
         self.hw_dirty = True
 
         cc.enter_software()
+        try:   # what the AIO runs on its own; replayed for channels left to the device
+            self.hw_cfg = cc.read_hw_config()
+        except (HidError, ccmod.ProtocolError):
+            self.hw_cfg = None
         self._poll(full=True)
         # set speeds before anything else so nothing spins up or stops
         self.d.fan_tick_worker(self, 1.0)
@@ -221,6 +228,7 @@ class CommanderCoreWorker(Worker):
         if not same:
             log.info("%s: storing hardware fallback curves", self.name)
             self.dev.write_hw_fallback(curves)
+            self.hw_cfg = self.dev.read_hw_config()
 
     def tick(self) -> None:
         frame = self.take_frame()
@@ -352,6 +360,29 @@ for _pid in lnmod.MODELS:
     DRIVERS[(lnmod.VID, _pid)] = LightingNodeWorker
 
 
+# ----------------------------------------------------------------- profiles
+def lighting_profile(L: dict, name: str) -> dict:
+    """Every zone's effect at once: the global one, and which zones run their own."""
+    zones = {}
+    for zid, z in L.get("zones", {}).items():
+        own = not z.get("follow", True)
+        zones[zid] = {"follow": not own, "spec": snapshot_spec(z["spec"]) if own and z.get("spec") else None}
+    return {"name": name, "global": snapshot_spec(L["global"]), "zones": zones}
+
+
+def active_profile(L: dict) -> str:
+    """Name of the profile that matches the current lighting, or ""."""
+    cur = lighting_profile(L, "")
+    norm = lambda z: {"follow": True, "spec": None} if z.get("follow", True) else z  # noqa: E731
+    for prof in L.get("profiles", []):
+        if prof["global"] != cur["global"]:
+            continue
+        ids = set(cur["zones"]) | set(prof["zones"])
+        if all(norm(cur["zones"].get(i, {})) == norm(prof["zones"].get(i, {})) for i in ids):
+            return prof["name"]
+    return ""
+
+
 # ----------------------------------------------------------------- daemon
 class Daemon:
     def __init__(self) -> None:
@@ -359,6 +390,7 @@ class Daemon:
         self.sensors = Sensors()
         self.sensors.start()
         self.engine = EffectEngine()
+        self.engine.screen = ScreenCapture(CONFIG_DIR / "screencast-token")
         self.fanctl = FanController()
         self.workers: dict[str, Worker] = {}
         self.wlock = threading.RLock()
@@ -369,6 +401,7 @@ class Daemon:
         self.last_change = 0.0
         self.extra_sources: list = []   # OpenRGB bridge etc.
         self.wled = WLEDBridge(self)
+        self.hwfans = HwmonFans(self)
 
     # ------------------------------------------------------------ helpers
     def device_cfg(self, key: str) -> dict:
@@ -383,7 +416,17 @@ class Daemon:
 
     def all_fans(self) -> list[dict]:
         with self.wlock:
-            return [f for w in self.workers.values() if w.status == "ok" for f in w.fans]
+            fans = [f for w in self.workers.values() if w.status == "ok" for f in w.fans]
+        for src in self.extra_sources:
+            if hasattr(src, "fans"):
+                fans += src.fans()
+        return fans
+
+    def fan_default(self, fid: str) -> dict:
+        for f in self.all_fans():
+            if f["id"] == fid:
+                return dict(f.get("default_cfg") or default_fan_cfg(f["pump"]))
+        return default_fan_cfg(fid.endswith("/pump"))
 
     def zone_spec(self, zone_id: str, lighting: dict) -> dict:
         z = lighting.get("zones", {}).get(zone_id)
@@ -408,7 +451,9 @@ class Daemon:
         curves = c["curves"]
         out = {}
         for f in w.fans:
-            ch = c["channels"].get(f["id"]) or default_fan_cfg(f["pump"])
+            ch = self.fan_cfg(f)
+            if ch.get("mode") == "hardware":
+                continue   # the AIO keeps the curve it has stored
             if ch.get("mode") == "fixed":
                 d = int(ch.get("fixed", 50))
                 pts = [(20.0, d), (60.0, d)]
@@ -490,14 +535,44 @@ class Daemon:
                 src.submit(frames)
             time.sleep(max(0.0, 1.0 / fps - (time.monotonic() - now)))
 
+    def screen_state(self) -> dict:
+        sc = self.engine.screen
+        running = bool(sc.thread and sc.thread.is_alive())
+        return {"running": running, "live": sc._frame is not None, "error": sc.error}
+
     # ---------------------------------------------------------------- fans
+    def fan_cfg(self, f: dict) -> dict:
+        """Channel settings in effect.  A device with fan control switched off runs on its own."""
+        ch = self.cfg.data["cooling"]["channels"].get(f["id"]) or f.get("default_cfg") or default_fan_cfg(f["pump"])
+        if self.device_cfg(f["id"].rsplit("/", 1)[0]).get("fan_control") is False:
+            return {**ch, "mode": "hardware"}
+        return ch
+
+    @staticmethod
+    def aio_own_duty(w: CommanderCoreWorker, port: int, liquid: float | None) -> float:
+        """The duty the AIO would pick itself in hardware mode (its stored curve or fixed value)."""
+        hw = getattr(w, "hw_cfg", None)
+        if liquid is None or not hw or port >= len(hw["modes"]):
+            return float(FAILSAFE_DUTY)
+        if liquid >= CRITICAL_LIQUID:
+            return 100.0
+        if hw["modes"][port] == ccmod.HW_MODE_CURVE and port < len(hw["curves"]) and len(hw["curves"][port]["points"]) >= 2:
+            return interpolate([list(p) for p in hw["curves"][port]["points"]], liquid)
+        if hw["modes"][port] == ccmod.HW_MODE_FIXED and port < len(hw["fixed"]):
+            return float(min(100, hw["fixed"][port]))
+        return float(FAILSAFE_DUTY)
+
     def fan_tick_worker(self, w: CommanderCoreWorker, dt: float) -> None:
         cooling = self.cfg.data["cooling"]
         liquid = self.sensors.get("liquid")
         duties = {}
         for f in w.fans:
-            ch = cooling["channels"].get(f["id"]) or default_fan_cfg(f["pump"])
+            ch = self.fan_cfg(f)
             mind = ccmod.PUMP_MIN_DUTY if f["pump"] else ccmod.FAN_MIN_DUTY
+            if ch.get("mode") == "hardware":   # software mode is needed for RGB: replay the AIO's own curve
+                duties[f["port"]] = int(round(max(mind, self.aio_own_duty(w, f["port"], liquid))))
+                self.fanctl.states.pop(f["id"], None)
+                continue
             duty = self.fanctl.step(f["id"], ch, cooling["curves"], self.sensors, dt,
                                     cooling.get("settings", {}), mind, liquid)
             if duty is not None:
@@ -536,6 +611,8 @@ class Daemon:
             self.start_openrgb()
         self.wled.start()
         self.extra_sources.append(self.wled)
+        self.hwfans.start()
+        self.extra_sources.append(self.hwfans)
         self.scan()
         threading.Thread(target=self.render_loop, daemon=True, name="render").start()
         last = time.monotonic()
@@ -551,6 +628,7 @@ class Daemon:
                     for key in list(self.workers):
                         self.restart_worker(key)
                 self.fan_tick(now - last)
+                self.engine.screen.idle_check()
                 last = now
                 if now - last_scan > 3:
                     self.scan()
@@ -566,6 +644,7 @@ class Daemon:
         finally:
             log.info("stopping, handing devices back to hardware mode")
             ipc.shutdown()
+            self.engine.screen.stop()
             with self.wlock:
                 ws = list(self.workers.values())
             for w in ws:
@@ -622,12 +701,14 @@ class Daemon:
                 st = self.fanctl.states.get(f["id"])
                 fans.append({**f, "target": st.target if st else None, "temp": st.temp if st else None,
                              "failsafe": st.failsafe if st else False, "why": self.failsafe_text(st),
-                             "cfg": snap["cooling"]["channels"].get(f["id"]) or default_fan_cfg(f["pump"])})
+                             "cfg": snap["cooling"]["channels"].get(f["id"]) or f.get("default_cfg") or default_fan_cfg(f["pump"]),
+                             "managed": snap["devices"].get(f["id"].rsplit("/", 1)[0], {}).get("fan_control") is not False})
             zones = [{"id": z.id, "device": z.device, "name": z.name, "leds": z.leds, "segments": z.segs(),
                       "kind": z.kind, "cfg": snap["lighting"]["zones"].get(z.id, {"follow": True})}
                      for z in self.all_zones()]
             return {"devices": devs, "fans": fans, "zones": zones, "sensors": self.sensors.listing(),
-                    "config": snap, "effects": EFFECTS, "effect_order": list(EFFECTS), "presets": lnmod.PRESETS,
+                    "config": snap, "effects": EFFECTS, "effect_order": list(EFFECTS),
+                    "screen": self.screen_state(), "active_profile": active_profile(snap["lighting"]), "presets": lnmod.PRESETS,
                     "hw_effects": list(lnmod.HW_EFFECTS) + ["off", "auto"], "uptime": time.time() - self.started}
         if method == "frame":
             want = p.get("zones")
@@ -639,7 +720,60 @@ class Daemon:
             return [(t, v) for t, v in self.sensors.history.get(sid, []) if t >= cutoff]
         if method == "set_global":
             with c.lock:
-                c.data["lighting"]["global"].update(p["spec"])
+                patch_spec(c.data["lighting"]["global"], p["spec"])
+            self.changed()
+            return True
+        if method in ("save_profile", "load_profile", "delete_profile"):
+            with c.lock:
+                L = c.data["lighting"]
+                profiles = L.setdefault("profiles", [])
+                if method == "save_profile":
+                    name = str(p.get("name") or "").strip() or f"Profil {len(profiles) + 1}"
+                    prof = lighting_profile(L, name)
+                    for i, e in enumerate(profiles):
+                        if e["name"] == name:
+                            profiles[i] = prof
+                            break
+                    else:
+                        profiles.append(prof)
+                elif method == "load_profile":
+                    prof = copy.deepcopy(profiles[int(p["index"])])
+                    load_snapshot(L["global"], prof["global"])
+                    for zid in set(L["zones"]) | set(prof["zones"]):
+                        pz = prof["zones"].get(zid, {"follow": True})
+                        z = L["zones"].setdefault(zid, {"follow": True})
+                        z["follow"] = pz["follow"]
+                        if pz.get("spec"):
+                            z["spec"] = load_snapshot(z.get("spec") or copy.deepcopy(L["global"]), pz["spec"])
+                else:
+                    del profiles[int(p["index"])]
+            self.changed()
+            return True
+        if method in ("save_effect", "load_effect", "delete_effect"):
+            target = p.get("target") or ""          # "" = global, else a zone id
+            with c.lock:
+                L = c.data["lighting"]
+                saved = L.setdefault("saved", {}).setdefault(target or "global", [])
+                if target:
+                    z = L["zones"].setdefault(target, {"follow": True})
+                    spec = z.get("spec") or copy.deepcopy(L["global"])
+                else:
+                    z, spec = None, L["global"]
+                if method == "save_effect":
+                    name = str(p.get("name") or "").strip() or EFFECTS.get(spec.get("effect"), {}).get("name", "Effekt")
+                    snap = snapshot_spec(spec)
+                    for e in saved:                    # same name: overwrite
+                        if e["name"] == name:
+                            e["spec"] = snap
+                            break
+                    else:
+                        saved.append({"name": name, "spec": snap})
+                elif method == "load_effect":
+                    load_snapshot(spec, copy.deepcopy(saved[int(p["index"])]["spec"]))
+                    if z is not None:
+                        z["spec"], z["follow"] = spec, False
+                else:
+                    del saved[int(p["index"])]
             self.changed()
             return True
         if method == "set_brightness":
@@ -653,9 +787,8 @@ class Daemon:
                 if "follow" in p:
                     z["follow"] = bool(p["follow"])
                 if "spec" in p:
-                    base = z.get("spec") or dict(c.data["lighting"]["global"])
-                    base.update(p["spec"])
-                    z["spec"] = base
+                    base = z.get("spec") or copy.deepcopy(c.data["lighting"]["global"])
+                    z["spec"] = patch_spec(base, p["spec"])
             self.changed()
             return True
         if method == "led_test":
@@ -673,7 +806,7 @@ class Daemon:
             return True
         if method == "set_fan":
             with c.lock:
-                ch = c.data["cooling"]["channels"].setdefault(p["fan"], default_fan_cfg(p["fan"].endswith("/pump")))
+                ch = c.data["cooling"]["channels"].setdefault(p["fan"], self.fan_default(p["fan"]))
                 for k in ("mode", "curve", "fixed", "label"):
                     if k in p:
                         ch[k] = p[k]
@@ -714,7 +847,7 @@ class Daemon:
             key = p["key"]
             with c.lock:
                 d = c.data["devices"].setdefault(key, {})
-                for k in ("label", "hw_effect", "disabled", "name", "kind"):
+                for k in ("label", "hw_effect", "disabled", "name", "kind", "fan_control"):
                     if k in p:
                         d[k] = p[k]
                 if "channels" in p:
@@ -726,8 +859,7 @@ class Daemon:
             self.changed()
             if "disabled" in p:
                 for src in self.extra_sources:
-                    src._reload = True
-                    src._wake.set()
+                    src.reload()
             if p.get("restart", True):
                 threading.Thread(target=self.restart_worker, args=(key,), daemon=True).start()
             return True
@@ -743,8 +875,7 @@ class Daemon:
                 d.setdefault("zone_sizes", {})[str(int(p["zone"]))] = int(p["size"])
             self.changed()
             for src in self.extra_sources:
-                src._reload = True
-                src._wake.set()
+                src.reload()
             return True
         if method == "set_openrgb":
             with c.lock:
